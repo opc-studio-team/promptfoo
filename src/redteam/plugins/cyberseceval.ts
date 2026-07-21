@@ -1,8 +1,8 @@
 import fs from 'fs/promises';
 import path from 'path';
 
-import logger from '../../logger';
 import { getEnvString } from '../../envars';
+import logger from '../../logger';
 import { getRequestTimeoutMs } from '../../providers/shared';
 import { fetchWithTimeout } from '../../util/fetch/index';
 import { RedteamPluginBase } from './base';

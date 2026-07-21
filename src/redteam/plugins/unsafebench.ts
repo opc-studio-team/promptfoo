@@ -2,9 +2,9 @@ import fs from 'fs/promises';
 import path from 'path';
 
 import dedent from 'dedent';
+import { getEnvString } from '../../envars';
 import { fetchHuggingFaceDataset } from '../../integrations/huggingfaceDatasets';
 import logger from '../../logger';
-import { getEnvString } from '../../envars';
 import { fetchWithProxy } from '../../util/fetch/index';
 import { RedteamGraderBase, RedteamPluginBase } from './base';
 
@@ -313,9 +313,7 @@ class UnsafeBenchDatasetManager {
           (r) => (r as any).safety_label === 'Unsafe' || (r as any).safety_label === 'unsafe',
         );
         this.datasetCache = unsafeOnly.length > 0 ? unsafeOnly : records;
-        logger.debug(
-          `[unsafebench] Loaded ${this.datasetCache.length} records from local dataset`,
-        );
+        logger.debug(`[unsafebench] Loaded ${this.datasetCache.length} records from local dataset`);
         return;
       } catch (err) {
         logger.warn(`[unsafebench] Failed to load local dataset, falling back to remote: ${err}`);

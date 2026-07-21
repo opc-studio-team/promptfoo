@@ -1,9 +1,9 @@
 import fs from 'fs/promises';
 import path from 'path';
 
+import { getEnvString } from '../../envars';
 import { fetchHuggingFaceDataset } from '../../integrations/huggingfaceDatasets';
 import logger from '../../logger';
-import { getEnvString } from '../../envars';
 import { isBasicRefusal } from '../util';
 import { RedteamGraderBase, RedteamPluginBase } from './base';
 
