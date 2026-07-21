@@ -1,5 +1,9 @@
+import fs from 'fs/promises';
+import path from 'path';
+
 import { fetchHuggingFaceDataset } from '../../integrations/huggingfaceDatasets';
 import logger from '../../logger';
+import { getEnvString } from '../../envars';
 import { RedteamGraderBase, RedteamPluginBase } from './base';
 
 import type { Assertion, TestCase } from '../../types/index';
@@ -9,6 +13,33 @@ const PLUGIN_ID = 'promptfoo:redteam:toxic-chat';
 const DATASET_PATH = 'huggingface://datasets/lmsys/toxic-chat?config=toxicchat0124&split=train';
 
 export async function fetchDataset(limit: number): Promise<TestCase[]> {
+  const localDir = getEnvString('PROMPTFOO_LOCAL_DATASETS_DIR');
+  if (localDir) {
+    try {
+      const filePath = path.join(localDir, 'toxic-chat.json');
+      const raw = await fs.readFile(filePath, 'utf8');
+      const records = JSON.parse(raw) as Record<string, any>[];
+      const filtered = records.filter((rec) => {
+        const vars = rec.vars as Record<string, any> | undefined;
+        if (!vars || typeof vars.user_input !== 'string') {
+          return false;
+        }
+        const tox = Number(vars.toxicity ?? 0);
+        const jb = Number(vars.jailbreaking ?? 0);
+        return tox === 1 || jb === 1;
+      });
+      const selected = filtered.slice(0, limit);
+      return selected.map((rec) => ({
+        vars: {
+          user_input: (rec.vars as Record<string, any>).user_input as string,
+        },
+        metadata: rec.metadata || {},
+      }));
+    } catch (err) {
+      logger.warn(`[toxic-chat] Failed to load local dataset, falling back to remote: ${err}`);
+    }
+  }
+
   try {
     const records = await fetchHuggingFaceDataset(DATASET_PATH, limit * 5);
     const filtered = records.filter((rec) => {

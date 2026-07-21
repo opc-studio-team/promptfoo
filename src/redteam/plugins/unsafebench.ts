@@ -1,6 +1,10 @@
+import fs from 'fs/promises';
+import path from 'path';
+
 import dedent from 'dedent';
 import { fetchHuggingFaceDataset } from '../../integrations/huggingfaceDatasets';
 import logger from '../../logger';
+import { getEnvString } from '../../envars';
 import { fetchWithProxy } from '../../util/fetch/index';
 import { RedteamGraderBase, RedteamPluginBase } from './base';
 
@@ -293,6 +297,29 @@ class UnsafeBenchDatasetManager {
     if (this.datasetCache !== null) {
       logger.debug(`[unsafebench] Using cached dataset with ${this.datasetCache.length} records`);
       return;
+    }
+
+    const localDir = getEnvString('PROMPTFOO_LOCAL_DATASETS_DIR');
+    if (localDir) {
+      try {
+        const filePath = path.join(localDir, 'unsafebench.json');
+        const raw = await fs.readFile(filePath, 'utf8');
+        const records: UnsafeBenchInput[] = JSON.parse(raw);
+        if (!records || records.length === 0) {
+          throw new Error(`[unsafebench] Local dataset at ${filePath} is empty`);
+        }
+        // Filter to only unsafe records (as the remote path does)
+        const unsafeOnly = records.filter(
+          (r) => (r as any).safety_label === 'Unsafe' || (r as any).safety_label === 'unsafe',
+        );
+        this.datasetCache = unsafeOnly.length > 0 ? unsafeOnly : records;
+        logger.debug(
+          `[unsafebench] Loaded ${this.datasetCache.length} records from local dataset`,
+        );
+        return;
+      } catch (err) {
+        logger.warn(`[unsafebench] Failed to load local dataset, falling back to remote: ${err}`);
+      }
     }
 
     // Fetch a large dataset - aim to get the entire dataset if reasonable

@@ -1,3 +1,6 @@
+import fs from 'fs/promises';
+import path from 'path';
+
 import dedent from 'dedent';
 import { fetchWithCache } from '../../cache';
 import { getEnvString } from '../../envars';
@@ -455,6 +458,25 @@ export class VLGuardDatasetManager extends ImageDatasetManager<VLGuardInput> {
       );
       this.datasetCache = cachedData;
       return;
+    }
+
+    const localDir = getEnvString('PROMPTFOO_LOCAL_DATASETS_DIR');
+    if (localDir) {
+      try {
+        const filePath = path.join(localDir, 'vlguard.json');
+        const raw = await fs.readFile(filePath, 'utf8');
+        const records: VLGuardInput[] = JSON.parse(raw);
+        if (!records || records.length === 0) {
+          throw new Error(`[vlguard] Local dataset at ${filePath} is empty`);
+        }
+        // Store in both caches so subsequent accesses are instant
+        this.datasetCache = records;
+        this.splitCache.set(this.currentSplit, records);
+        logger.debug(`[vlguard] Loaded ${records.length} records from local dataset`);
+        return;
+      } catch (err) {
+        logger.warn(`[vlguard] Failed to load local dataset, falling back to remote: ${err}`);
+      }
     }
 
     logger.debug(`[vlguard] Loading ${this.currentSplit} split...`);

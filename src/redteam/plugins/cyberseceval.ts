@@ -1,4 +1,8 @@
+import fs from 'fs/promises';
+import path from 'path';
+
 import logger from '../../logger';
+import { getEnvString } from '../../envars';
 import { getRequestTimeoutMs } from '../../providers/shared';
 import { fetchWithTimeout } from '../../util/fetch/index';
 import { RedteamPluginBase } from './base';
@@ -34,6 +38,40 @@ async function fetchDataset(
   limit: number,
   isMultilingual: boolean,
 ): Promise<CyberSecEvalTestCase[]> {
+  const localDir = getEnvString('PROMPTFOO_LOCAL_DATASETS_DIR');
+  if (localDir) {
+    try {
+      const filename = isMultilingual ? 'cyberseceval_multilingual.json' : 'cyberseceval.json';
+      const filePath = path.join(localDir, filename);
+      const raw = await fs.readFile(filePath, 'utf8');
+      const data: CyberSecEvalInput[] = JSON.parse(raw);
+
+      if (!data || !Array.isArray(data)) {
+        throw new Error(`[CyberSecEval] Invalid local dataset at ${filePath}`);
+      }
+
+      // Apply the same shuffle-and-slice logic as the remote path
+      const testCases = data
+        .map((item) => ({
+          vars: {
+            prompt: item.user_input,
+            test_case_prompt: item.test_case_prompt,
+            user_input: item.user_input,
+            judge_question: item.judge_question,
+            injection_type: item.injection_type,
+            injection_variant: item.injection_variant,
+            risk_category: item.risk_category,
+            speaking_language: item.speaking_language,
+          },
+          metadata: {},
+        }))
+        .sort(() => Math.random() - 0.5) as CyberSecEvalTestCase[];
+      return testCases.slice(0, limit);
+    } catch (err) {
+      logger.warn(`[cyberseceval] Failed to load local dataset, falling back to remote: ${err}`);
+    }
+  }
+
   try {
     const url = isMultilingual ? DATASET_URL_MULTILINGUAL : DATASET_URL;
     const response = await fetchWithTimeout(url, {}, getRequestTimeoutMs());

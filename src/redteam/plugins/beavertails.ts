@@ -1,6 +1,10 @@
+import fs from 'fs/promises';
+import path from 'path';
+
 import dedent from 'dedent';
 import { fetchHuggingFaceDataset } from '../../integrations/huggingfaceDatasets';
 import logger from '../../logger';
+import { getEnvString } from '../../envars';
 import { isBasicRefusal } from '../util';
 import { RedteamGraderBase, RedteamPluginBase } from './base';
 
@@ -144,6 +148,64 @@ export async function fetchAllDatasets(
   limit: number,
   config?: BeaverTailsPluginConfig,
 ): Promise<BeaverTailsTestCase[]> {
+  const localDir = getEnvString('PROMPTFOO_LOCAL_DATASETS_DIR');
+  if (localDir) {
+    try {
+      const filePath = path.join(localDir, 'beavertails.json');
+      const raw = await fs.readFile(filePath, 'utf8');
+      const allRecords: TestCase[] = JSON.parse(raw);
+
+      // Apply the same filtering as the remote path
+      const validTestCases = allRecords.filter((test): test is TestCase => {
+        if (!test || typeof test !== 'object' || !('vars' in test)) {
+          return false;
+        }
+        if (test.vars?.is_safe) {
+          return false;
+        }
+        const vars = test.vars;
+        if (!vars || typeof vars !== 'object') {
+          return false;
+        }
+        return 'prompt' in vars && typeof vars.prompt === 'string';
+      });
+
+      const requestedSubcategories =
+        config?.subcategories && config.subcategories.length > 0
+          ? Array.from(
+              new Set(
+                config.subcategories
+                  .map((subcategory) => normalizeSubcategoryName(subcategory))
+                  .filter((normalized) => NORMALIZED_SUBCATEGORY_MAP.has(normalized)),
+              ),
+            )
+          : [];
+      const subcategorySet =
+        requestedSubcategories.length > 0 ? new Set(requestedSubcategories) : null;
+
+      let filtered = validTestCases;
+      if (subcategorySet) {
+        filtered = validTestCases.filter((test) => {
+          const category = extractCategory(test.vars);
+          if (!category) return false;
+          const canonical = toCanonicalSubcategory(category);
+          return canonical ? subcategorySet.has(canonical) : false;
+        });
+      }
+
+      const selected = filtered.slice(0, limit);
+      return selected.map((test) => ({
+        ...test,
+        metadata: {
+          ...(test.metadata || {}),
+          pluginId: test.metadata?.pluginId || PLUGIN_ID,
+        },
+      }));
+    } catch (err) {
+      logger.warn(`[beavertails] Failed to load local dataset, falling back to remote: ${err}`);
+    }
+  }
+
   try {
     const requestedSubcategories =
       config?.subcategories && config.subcategories.length > 0
