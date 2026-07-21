@@ -2,9 +2,9 @@ import fs from 'fs/promises';
 import path from 'path';
 
 import dedent from 'dedent';
+import { getEnvString } from '../../envars';
 import { fetchHuggingFaceDataset } from '../../integrations/huggingfaceDatasets';
 import logger from '../../logger';
-import { getEnvString } from '../../envars';
 import { isBasicRefusal } from '../util';
 import { RedteamGraderBase, RedteamPluginBase } from './base';
 
@@ -187,7 +187,9 @@ export async function fetchAllDatasets(
       if (subcategorySet) {
         filtered = validTestCases.filter((test) => {
           const category = extractCategory(test.vars);
-          if (!category) return false;
+          if (!category) {
+            return false;
+          }
           const canonical = toCanonicalSubcategory(category);
           return canonical ? subcategorySet.has(canonical) : false;
         });
@@ -200,7 +202,7 @@ export async function fetchAllDatasets(
           ...(test.metadata || {}),
           pluginId: test.metadata?.pluginId || PLUGIN_ID,
         },
-      }));
+      })) as BeaverTailsTestCase[];
     } catch (err) {
       logger.warn(`[beavertails] Failed to load local dataset, falling back to remote: ${err}`);
     }
