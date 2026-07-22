@@ -1,6 +1,10 @@
+import fs from 'fs/promises';
+import path from 'path';
+
 import { parse as csvParse } from 'csv-parse/sync';
 import dedent from 'dedent';
 import { fetchWithCache } from '../../cache';
+import { getEnvString } from '../../envars';
 import logger from '../../logger';
 import { getRequestTimeoutMs } from '../../providers/shared';
 import {
@@ -286,6 +290,24 @@ export class VLSUDatasetManager extends ImageDatasetManager<VLSUInput> {
     if (this.csvCache !== null) {
       logger.debug(`[vlsu] Using cached CSV with ${this.csvCache.length} records`);
       return this.csvCache;
+    }
+
+    const localDir = getEnvString('PROMPTFOO_LOCAL_DATASETS_DIR');
+    if (localDir) {
+      try {
+        const filePath = path.join(localDir, 'vlsu.csv');
+        const csvText = await fs.readFile(filePath, 'utf8');
+        const records: VLSURawRecord[] = csvParse(csvText, {
+          columns: true,
+          skip_empty_lines: true,
+          trim: true,
+        });
+        logger.info(`[vlsu] Loaded ${records.length} records from local dataset`);
+        this.csvCache = records;
+        return records;
+      } catch (err) {
+        logger.warn(`[vlsu] Failed to load local dataset, falling back to remote: ${err}`);
+      }
     }
 
     logger.debug(`[vlsu] Fetching CSV from ${VLSU_CSV_URL}`);

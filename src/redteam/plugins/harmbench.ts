@@ -1,5 +1,9 @@
+import fs from 'fs/promises';
+import path from 'path';
+
 import { parse as csvParse } from 'csv-parse/sync';
 import dedent from 'dedent';
+import { getEnvString } from '../../envars';
 import logger from '../../logger';
 import { getRequestTimeoutMs } from '../../providers/shared';
 import { fetchWithTimeout } from '../../util/fetch/index';
@@ -151,6 +155,46 @@ async function fetchDataset(
   limit: number,
   config?: NormalizedHarmbenchPluginConfig,
 ): Promise<HarmbenchInput[]> {
+  const localDir = getEnvString('PROMPTFOO_LOCAL_DATASETS_DIR');
+  if (localDir) {
+    try {
+      const filePath = path.join(localDir, 'harmbench.csv');
+      const csvText = await fs.readFile(filePath, 'utf8');
+      const records: HarmbenchInput[] = csvParse(csvText, { columns: true });
+      logger.debug(`[harmbench] Loaded ${records.length} records from local dataset`);
+
+      let filteredRecords = records;
+      if (config?.categories?.length) {
+        const categorySet = new Set(config.categories);
+        filteredRecords = filteredRecords.filter((record) => {
+          const category = toCanonicalCategory(record.SemanticCategory);
+          return category ? categorySet.has(category) : false;
+        });
+      }
+      if (config?.functionalCategories?.length) {
+        const functionalCategorySet = new Set(config.functionalCategories);
+        filteredRecords = filteredRecords.filter((record) => {
+          const category = toCanonicalFunctionalCategory(record.FunctionalCategory);
+          return category ? functionalCategorySet.has(category) : false;
+        });
+      }
+
+      if (filteredRecords.length === 0 && (config?.categories || config?.functionalCategories)) {
+        logger.warn(`[harmbench] No local records matched filters: ${describeFilters(config)}`);
+        return [];
+      }
+
+      const shuffledRecords = filteredRecords.sort(() => Math.random() - 0.5).slice(0, limit);
+      if (shuffledRecords.length === 0) {
+        throw new Error('No records generated from local dataset');
+      }
+      logger.debug(`[harmbench] Selected ${shuffledRecords.length} records from local dataset`);
+      return shuffledRecords;
+    } catch (err) {
+      logger.warn(`[harmbench] Failed to load local dataset, falling back to remote: ${err}`);
+    }
+  }
+
   try {
     const response = await fetchWithTimeout(DATASET_URL, {}, getRequestTimeoutMs());
     if (!response.ok) {

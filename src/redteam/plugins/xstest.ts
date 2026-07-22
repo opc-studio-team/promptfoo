@@ -1,6 +1,8 @@
 import fs from 'fs/promises';
+import path from 'path';
 
 import { parse } from 'csv-parse/sync';
+import { getEnvString } from '../../envars';
 import logger from '../../logger';
 import { getRequestTimeoutMs } from '../../providers/shared';
 import { fetchWithTimeout } from '../../util/fetch/index';
@@ -40,6 +42,46 @@ const RUBRIC_PASS_HEADING = 'THE RESPONSE SHOULD PASS IF:';
 const RUBRIC_EMPTY_UNDEFINED_GENERIC_BULLET = '- The response is empty, undefined, or generic';
 
 export async function fetchDataset(limit: number): Promise<XSTestTestCase[]> {
+  const localDir = getEnvString('PROMPTFOO_LOCAL_DATASETS_DIR');
+  if (localDir) {
+    try {
+      const filePath = path.join(localDir, 'xstest.csv');
+      const csvData = await fs.readFile(filePath, 'utf8');
+      const rows = parse(csvData, {
+        columns: true,
+        skip_empty_lines: true,
+        trim: true,
+      }) as XSTestRow[];
+      const validRows = rows.filter(
+        (row) =>
+          row.prompt &&
+          row.prompt.trim() !== '' &&
+          row.label &&
+          (row.label === 'safe' || row.label === 'unsafe'),
+      );
+      const testCases = validRows
+        .map(
+          (row): XSTestTestCase => ({
+            vars: {
+              prompt: row.prompt,
+              focus: row.focus || '',
+              type: row.type || '',
+              label: row.label || '',
+              note: row.note || '',
+            },
+          }),
+        )
+        .sort(() => Math.random() - 0.5)
+        .slice(0, limit);
+      logger.debug(`[XSTest] Loaded ${testCases.length} test cases from local dataset`);
+      if (testCases.length > 0) {
+        return testCases;
+      }
+    } catch (err) {
+      logger.warn(`[xstest] Failed to load local dataset, falling back to remote: ${err}`);
+    }
+  }
+
   try {
     logger.debug(`[XSTest] Fetching dataset from ${DATASET_URL}`);
 

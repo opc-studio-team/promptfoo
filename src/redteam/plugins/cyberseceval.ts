@@ -34,14 +34,48 @@ interface CyberSecEvalTestCase extends TestCase {
   vars: CyberSecEvalVars;
 }
 
+// Language code → full name mapping for speaking_language filtering.
+const LANGUAGE_CODE_MAP: Record<string, string> = {
+  zh: 'Chinese',
+  en: 'English',
+  hi: 'Hindi',
+  bn: 'Bengali',
+  tr: 'Turkish',
+  ar: 'Arabic',
+  it: 'Italian',
+  es: 'Spanish',
+  vi: 'Vietnamese',
+  fr: 'French',
+  ru: 'Russian',
+  tl: 'Filipino/Tagalog',
+  pt: 'Portuguese',
+  ja: 'Japanese',
+  ko: 'Korean',
+  de: 'German',
+  id: 'Indonesian',
+  th: 'Thai',
+};
+
+function normalizeLanguage(lang: string): string {
+  const lower = lang.toLowerCase().trim();
+  if (LANGUAGE_CODE_MAP[lower]) {
+    return LANGUAGE_CODE_MAP[lower];
+  }
+  return lang.charAt(0).toUpperCase() + lang.slice(1).toLowerCase();
+}
+
 async function fetchDataset(
   limit: number,
   isMultilingual: boolean,
+  language?: string,
 ): Promise<CyberSecEvalTestCase[]> {
+  const normalizedLang = language ? normalizeLanguage(language) : undefined;
+  const useMultilingual = isMultilingual || (!!normalizedLang && normalizedLang !== 'English');
+
   const localDir = getEnvString('PROMPTFOO_LOCAL_DATASETS_DIR');
   if (localDir) {
     try {
-      const filename = isMultilingual ? 'cyberseceval_multilingual.json' : 'cyberseceval.json';
+      const filename = useMultilingual ? 'cyberseceval_multilingual.json' : 'cyberseceval.json';
       const filePath = path.join(localDir, filename);
       const raw = await fs.readFile(filePath, 'utf8');
       const data: CyberSecEvalInput[] = JSON.parse(raw);
@@ -50,8 +84,23 @@ async function fetchDataset(
         throw new Error(`[CyberSecEval] Invalid local dataset at ${filePath}`);
       }
 
+      let filtered = data;
+      if (normalizedLang) {
+        const matching = data.filter((item) => (item as any).speaking_language === normalizedLang);
+        if (matching.length > 0) {
+          filtered = matching;
+          logger.debug(
+            `[CyberSecEval] Language filter "${normalizedLang}" → ${matching.length} records from ${filename}`,
+          );
+        } else {
+          logger.warn(
+            `[CyberSecEval] No "${normalizedLang}" entries in ${filename}, using all ${data.length} records`,
+          );
+        }
+      }
+
       // Apply the same shuffle-and-slice logic as the remote path
-      const testCases = data
+      const testCases = filtered
         .map((item) => ({
           vars: {
             prompt: item.user_input,
@@ -73,7 +122,7 @@ async function fetchDataset(
   }
 
   try {
-    const url = isMultilingual ? DATASET_URL_MULTILINGUAL : DATASET_URL;
+    const url = useMultilingual ? DATASET_URL_MULTILINGUAL : DATASET_URL;
     const response = await fetchWithTimeout(url, {}, getRequestTimeoutMs());
     if (!response.ok) {
       throw new Error(`[CyberSecEval] HTTP status: ${response.status} ${response.statusText}`);
@@ -84,14 +133,27 @@ async function fetchDataset(
       throw new Error(`[CyberSecEval] Invalid response from ${DATASET_URL}`);
     }
 
+    let filtered = data;
+    if (normalizedLang) {
+      const matching = data.filter((item) => (item as any).speaking_language === normalizedLang);
+      if (matching.length > 0) {
+        filtered = matching;
+      } else {
+        logger.warn(
+          `[CyberSecEval] No "${normalizedLang}" entries in remote dataset, using all ${data.length} records`,
+        );
+      }
+    }
+
     // Convert the raw data to test cases and shuffle them
-    const testCases = data
+    const testCases = filtered
       .map(
         (input): CyberSecEvalTestCase => ({
           vars: {
             test_case_prompt: input.test_case_prompt,
             user_input: input.user_input,
             judge_question: input.judge_question,
+            speaking_language: (input as any).speaking_language as string | undefined,
           },
         }),
       )
@@ -129,20 +191,12 @@ export class CyberSecEvalPlugin extends RedteamPluginBase {
   }
 
   async generateTests(n: number, _delayMs?: number): Promise<TestCase[]> {
-    const testCases = await fetchDataset(n, this.config.multilingual as boolean);
+    const language = this.config.language as string | undefined;
+    const testCases = await fetchDataset(n, this.config.multilingual as boolean, language);
 
     return testCases.map((test) => ({
       vars: {
-        [this.injectVar]: JSON.stringify([
-          {
-            role: 'system',
-            content: test.vars.test_case_prompt,
-          },
-          {
-            role: 'user',
-            content: test.vars.user_input,
-          },
-        ]),
+        [this.injectVar]: test.vars.user_input,
       },
       assert: [
         {
