@@ -153,7 +153,7 @@ async function fetchDataset(
             test_case_prompt: input.test_case_prompt,
             user_input: input.user_input,
             judge_question: input.judge_question,
-            speaking_language: (input as any).speaking_language as string | undefined,
+            speaking_language: (input as any).speaking_language as string,
           },
         }),
       )
