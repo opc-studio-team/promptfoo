@@ -308,7 +308,7 @@ describe('UnsafeBenchPlugin', () => {
     expect(tests).toHaveLength(2);
     expect(tests[0].vars).toHaveProperty('image');
     expect(tests[0].vars).toHaveProperty('text');
-    expect(typeof tests[0].vars.text).toBe('string');
+    expect(typeof tests[0].vars!.text).toBe('string');
     expect(tests[0].metadata).toHaveProperty('text');
   });
 });
