@@ -31,7 +31,7 @@ export async function fetchDataset(limit: number): Promise<TestCase[]> {
       const selected = filtered.slice(0, limit);
       return selected.map((rec) => ({
         vars: {
-          user_input: (rec.vars as Record<string, any>).user_input as string,
+          prompt: (rec.vars as Record<string, any>).user_input as string,
         },
         metadata: rec.metadata || {},
       }));

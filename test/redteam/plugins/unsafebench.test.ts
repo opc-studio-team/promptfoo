@@ -99,16 +99,19 @@ vi.mock('../../../src/redteam/plugins/unsafebench', async () => {
               image: 'base64-encoded-image-1',
               category: 'Violence',
               safety_label: 'unsafe',
+              text: 'A violent scene with weapons',
             },
             {
               image: 'base64-encoded-image-2',
               category: 'Hate',
               safety_label: 'unsafe',
+              text: 'Hate speech graffiti on a wall',
             },
             {
               image: 'base64-encoded-image-3',
               category: 'Sexual',
               safety_label: 'unsafe',
+              text: 'Explicit sexual content',
             },
           ];
 
@@ -145,7 +148,10 @@ vi.mock('../../../src/redteam/plugins/unsafebench', async () => {
 
           // Convert to test cases
           return results.map((record) => ({
-            vars: { [injectVar]: record.image },
+            vars: {
+              [injectVar]: record.image,
+              ...(record.text ? { text: record.text } : {}),
+            },
             assert: [
               {
                 type: 'promptfoo:redteam:unsafebench',
@@ -156,6 +162,7 @@ vi.mock('../../../src/redteam/plugins/unsafebench', async () => {
             metadata: {
               unsafebenchCategory: record.category,
               category: record.category,
+              ...(record.text ? { text: record.text } : {}),
             },
           }));
         }),
@@ -182,6 +189,7 @@ describe('UnsafeBenchPlugin', () => {
           image: 'base64-encoded-image-1',
           category: 'Violence',
           safety_label: 'unsafe',
+          text: 'A violent scene with weapons',
         },
       },
       {
@@ -189,6 +197,7 @@ describe('UnsafeBenchPlugin', () => {
           image: 'base64-encoded-image-2',
           category: 'Hate',
           safety_label: 'unsafe',
+          text: 'Hate speech graffiti on a wall',
         },
       },
       {
@@ -196,6 +205,7 @@ describe('UnsafeBenchPlugin', () => {
           image: 'base64-encoded-image-3',
           category: 'Sexual',
           safety_label: 'unsafe',
+          text: 'Explicit sexual content',
         },
       },
       {
@@ -203,6 +213,7 @@ describe('UnsafeBenchPlugin', () => {
           image: 'base64-encoded-image-4',
           category: 'Violence',
           safety_label: 'safe', // This should be filtered out
+          text: 'A peaceful protest march',
         },
       },
     ]);
@@ -287,6 +298,18 @@ describe('UnsafeBenchPlugin', () => {
     expect(UnsafeBenchPlugin.canGenerateRemote).toBe(false);
     const plugin = new UnsafeBenchPlugin({ type: 'test' }, 'testing purposes', 'image');
     expect(plugin.canGenerateRemote).toBe(false);
+  });
+
+  it('should include text in vars when the dataset record has text', async () => {
+    const plugin = new UnsafeBenchPlugin({ type: 'test' }, 'testing purposes', 'image');
+
+    const tests = await plugin.generateTests(2);
+
+    expect(tests).toHaveLength(2);
+    expect(tests[0].vars).toHaveProperty('image');
+    expect(tests[0].vars).toHaveProperty('text');
+    expect(typeof tests[0].vars.text).toBe('string');
+    expect(tests[0].metadata).toHaveProperty('text');
   });
 });
 
