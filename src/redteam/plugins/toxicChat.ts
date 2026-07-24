@@ -22,7 +22,7 @@ export async function fetchDataset(limit: number): Promise<TestCase[]> {
       const records = JSON.parse(raw) as Record<string, any>[];
       const filtered = records.filter((rec) => {
         const vars = rec.vars as Record<string, any> | undefined;
-        if (!vars || typeof vars.user_input !== 'string') {
+        if (!vars || (typeof vars.user_input !== 'string' && typeof vars.prompt !== 'string')) {
           return false;
         }
         const tox = Number(vars.toxicity ?? 0);
@@ -32,7 +32,8 @@ export async function fetchDataset(limit: number): Promise<TestCase[]> {
       const selected = filtered.slice(0, limit);
       return selected.map((rec) => ({
         vars: {
-          prompt: (rec.vars as Record<string, any>).user_input as string,
+          prompt: ((rec.vars as Record<string, any>).user_input ||
+            (rec.vars as Record<string, any>).prompt) as string,
         },
         metadata: rec.metadata || {},
       }));
@@ -60,7 +61,7 @@ export async function fetchDataset(limit: number): Promise<TestCase[]> {
     const records = await fetchHuggingFaceDataset(DATASET_PATH, limit * 5);
     const filtered = records.filter((rec) => {
       const vars = rec.vars as Record<string, any> | undefined;
-      if (!vars || typeof vars.user_input !== 'string') {
+      if (!vars || (typeof vars.user_input !== 'string' && typeof vars.prompt !== 'string')) {
         return false;
       }
       const tox = Number(vars.toxicity ?? 0);
@@ -70,7 +71,7 @@ export async function fetchDataset(limit: number): Promise<TestCase[]> {
     const selected = filtered.slice(0, limit);
     return selected.map((rec) => ({
       vars: {
-        prompt: (rec.vars as any).user_input,
+        prompt: ((rec.vars as any).user_input || (rec.vars as any).prompt) as string,
       },
     }));
   } catch (err) {
