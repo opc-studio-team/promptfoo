@@ -1454,6 +1454,60 @@ export async function synthesize({
             };
           }
 
+          // When a non-default language yields zero tests, the cloud service
+          // likely lacks templates for that language.  Automatically fall back
+          // to English (no language hint) so the plugin is not silently lost.
+          if (lang && lang !== 'en') {
+            logger.warn(
+              `[Language Processing] No tests generated for ${plugin.id} in language: ${lang}, falling back to English`,
+            );
+            const fallbackTests = await action({
+              provider: redteamProvider,
+              purpose,
+              injectVar,
+              n: plugin.numTests,
+              delayMs: delay || 0,
+              targetId: cloudTargetId,
+              redteamGenerationContext,
+              config: {
+                ...resolvePluginConfigWithMaxChars(plugin.config, maxCharsPerMessage),
+                // Omit language so the cloud service uses its default (English)
+                ...(hasMultipleInputs ? { inputs } : {}),
+                modifiers: buildRedteamModifiers({
+                  maxCharsPerMessage,
+                  pluginConfig: plugin.config,
+                  testGenerationInstructions,
+                }),
+              },
+            });
+            if (Array.isArray(fallbackTests) && fallbackTests.length > 0) {
+              const testsWithMetadata = fallbackTests.map((test) =>
+                addLanguageToPluginMetadata(
+                  test,
+                  lang,
+                  plugin,
+                  maxCharsPerMessage,
+                  testGenerationInstructions,
+                ),
+              );
+              const constrainedTests = filterOversizedTestCases(
+                testsWithMetadata,
+                injectVar,
+                `Plugin ${plugin.id}`,
+                maxCharsPerMessage,
+              );
+              logger.info(
+                `[Language Processing] Fallback succeeded for ${plugin.id}: ${constrainedTests.length} test(s) generated in English`,
+              );
+              return {
+                lang: langKey,
+                tests: constrainedTests,
+                requested: plugin.numTests,
+                generated: constrainedTests.length,
+              };
+            }
+          }
+
           logger.warn(
             `[Language Processing] No tests generated for ${plugin.id} in language: ${lang || 'default'}`,
           );
