@@ -7,6 +7,7 @@ import { getEnvString } from '../../envars';
 import logger from '../../logger';
 import { getRequestTimeoutMs } from '../../providers/shared';
 import { fetchWithTimeout } from '../../util/fetch/index';
+import { isRemoteDatasetFetchAllowed } from '../util';
 import { RedteamGraderBase, RedteamPluginBase } from './base';
 
 import type { Assertion, PluginConfig, TestCase } from '../../types/index';
@@ -191,8 +192,23 @@ async function fetchDataset(
       logger.debug(`[harmbench] Selected ${shuffledRecords.length} records from local dataset`);
       return shuffledRecords;
     } catch (err) {
+      if (!isRemoteDatasetFetchAllowed()) {
+        logger.warn(
+          `[harmbench] Local dataset not found and remote dataset fetch is disabled. ` +
+            `Run the preload script or set PROMPTFOO_DISABLE_REMOTE_DATASET_FETCH=false.`,
+        );
+        return [];
+      }
       logger.warn(`[harmbench] Failed to load local dataset, falling back to remote: ${err}`);
     }
+  }
+
+  if (!isRemoteDatasetFetchAllowed()) {
+    logger.warn(
+      `[harmbench] Remote dataset fetch is disabled. ` +
+        `Set PROMPTFOO_LOCAL_DATASETS_DIR with preloaded data or PROMPTFOO_DISABLE_REMOTE_DATASET_FETCH=false.`,
+    );
+    return [];
   }
 
   try {

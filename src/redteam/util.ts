@@ -1,4 +1,5 @@
 import { fetchWithCache } from '../cache';
+import { getEnvBool } from '../envars';
 import logger from '../logger';
 import { getRequestTimeoutMs } from '../providers/shared';
 import { type Inputs } from '../types/shared';
@@ -20,6 +21,24 @@ import {
 import { remoteGenerationContextPayload } from './remoteGenerationContext';
 
 import type { CallApiContextParams, ProviderResponse } from '../types/index';
+
+/**
+ * Checks whether remote dataset fetching (HuggingFace/GitHub download) is allowed.
+ * Separate from remote generation (Promptfoo Cloud API) — see remoteGeneration.ts.
+ *
+ * When PROMPTFOO_LOCAL_DATASETS_DIR is set, callers should prefer local files and
+ * only call this function to decide whether to fall back to remote on failure.
+ *
+ * @returns true if remote dataset download is permitted
+ */
+export function isRemoteDatasetFetchAllowed(): boolean {
+  // Respect the general remote-disable flag (superset — affects all remote access)
+  if (getEnvBool('PROMPTFOO_DISABLE_REMOTE_GENERATION')) {
+    return false;
+  }
+  // Dataset-specific flag defaults to false (remote download allowed)
+  return !getEnvBool('PROMPTFOO_DISABLE_REMOTE_DATASET_FETCH');
+}
 
 /**
  * Regex pattern for matching <Prompt> tags in multi-input redteam generation output.

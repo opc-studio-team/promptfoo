@@ -42,6 +42,15 @@ type EnvVars = {
    * Does NOT affect: Regular (non-redteam) SimulatedUser usage.
    */
   PROMPTFOO_DISABLE_REDTEAM_REMOTE_GENERATION?: boolean;
+  /**
+   * Disable remote dataset fetching (HuggingFace/GitHub) for dataset plugins.
+   * Defaults to false (remote download allowed when PROMPTFOO_LOCAL_DATASETS_DIR
+   * is not set). When PROMPTFOO_LOCAL_DATASETS_DIR IS set, local file read
+   * failures will NOT fall back to remote regardless of this flag.
+   * Separate from PROMPTFOO_DISABLE_REMOTE_GENERATION which controls the
+   * Promptfoo Cloud API for LLM-based test case generation.
+   */
+  PROMPTFOO_DISABLE_REMOTE_DATASET_FETCH?: boolean;
   PROMPTFOO_DISABLE_REF_PARSER?: boolean;
   PROMPTFOO_DISABLE_SHARE_EMAIL_REQUEST?: boolean;
   PROMPTFOO_DISABLE_SHARE_WARNING?: boolean;

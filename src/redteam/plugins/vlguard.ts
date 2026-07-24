@@ -5,6 +5,7 @@ import dedent from 'dedent';
 import { fetchWithCache } from '../../cache';
 import { getEnvString } from '../../envars';
 import logger from '../../logger';
+import { isRemoteDatasetFetchAllowed } from '../util';
 import {
   ImageDatasetGraderBase,
   ImageDatasetPluginBase,
@@ -475,8 +476,23 @@ export class VLGuardDatasetManager extends ImageDatasetManager<VLGuardInput> {
         logger.debug(`[vlguard] Loaded ${records.length} records from local dataset`);
         return;
       } catch (err) {
+        if (!isRemoteDatasetFetchAllowed()) {
+          logger.warn(
+            `[vlguard] Local dataset not found and remote dataset fetch is disabled. ` +
+              `Run the preload script or set PROMPTFOO_DISABLE_REMOTE_DATASET_FETCH=false.`,
+          );
+          return;
+        }
         logger.warn(`[vlguard] Failed to load local dataset, falling back to remote: ${err}`);
       }
+    }
+
+    if (!isRemoteDatasetFetchAllowed()) {
+      logger.warn(
+        `[vlguard] Remote dataset fetch is disabled. ` +
+          `Set PROMPTFOO_LOCAL_DATASETS_DIR with preloaded data or PROMPTFOO_DISABLE_REMOTE_DATASET_FETCH=false.`,
+      );
+      return;
     }
 
     logger.debug(`[vlguard] Loading ${this.currentSplit} split...`);

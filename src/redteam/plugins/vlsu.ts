@@ -7,6 +7,7 @@ import { fetchWithCache } from '../../cache';
 import { getEnvString } from '../../envars';
 import logger from '../../logger';
 import { getRequestTimeoutMs } from '../../providers/shared';
+import { isRemoteDatasetFetchAllowed } from '../util';
 import {
   ImageDatasetGraderBase,
   ImageDatasetPluginBase,
@@ -306,8 +307,23 @@ export class VLSUDatasetManager extends ImageDatasetManager<VLSUInput> {
         this.csvCache = records;
         return records;
       } catch (err) {
+        if (!isRemoteDatasetFetchAllowed()) {
+          logger.warn(
+            `[vlsu] Local dataset not found and remote dataset fetch is disabled. ` +
+              `Run the preload script or set PROMPTFOO_DISABLE_REMOTE_DATASET_FETCH=false.`,
+          );
+          return [];
+        }
         logger.warn(`[vlsu] Failed to load local dataset, falling back to remote: ${err}`);
       }
+    }
+
+    if (!isRemoteDatasetFetchAllowed()) {
+      logger.warn(
+        `[vlsu] Remote dataset fetch is disabled. ` +
+          `Set PROMPTFOO_LOCAL_DATASETS_DIR with preloaded data or PROMPTFOO_DISABLE_REMOTE_DATASET_FETCH=false.`,
+      );
+      return [];
     }
 
     logger.debug(`[vlsu] Fetching CSV from ${VLSU_CSV_URL}`);

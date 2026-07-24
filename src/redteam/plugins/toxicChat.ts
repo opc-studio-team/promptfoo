@@ -4,6 +4,7 @@ import path from 'path';
 import { getEnvString } from '../../envars';
 import { fetchHuggingFaceDataset } from '../../integrations/huggingfaceDatasets';
 import logger from '../../logger';
+import { isRemoteDatasetFetchAllowed } from '../util';
 import { RedteamGraderBase, RedteamPluginBase } from './base';
 
 import type { Assertion, TestCase } from '../../types/index';
@@ -36,8 +37,23 @@ export async function fetchDataset(limit: number): Promise<TestCase[]> {
         metadata: rec.metadata || {},
       }));
     } catch (err) {
+      if (!isRemoteDatasetFetchAllowed()) {
+        logger.warn(
+          `[toxic-chat] Local dataset not found and remote dataset fetch is disabled. ` +
+            `Run the preload script or set PROMPTFOO_DISABLE_REMOTE_DATASET_FETCH=false.`,
+        );
+        return [];
+      }
       logger.warn(`[toxic-chat] Failed to load local dataset, falling back to remote: ${err}`);
     }
+  }
+
+  if (!isRemoteDatasetFetchAllowed()) {
+    logger.warn(
+      `[toxic-chat] Remote dataset fetch is disabled. ` +
+        `Set PROMPTFOO_LOCAL_DATASETS_DIR with preloaded data or PROMPTFOO_DISABLE_REMOTE_DATASET_FETCH=false.`,
+    );
+    return [];
   }
 
   try {

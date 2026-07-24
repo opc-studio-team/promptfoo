@@ -6,6 +6,7 @@ import { getEnvString } from '../../envars';
 import { fetchHuggingFaceDataset } from '../../integrations/huggingfaceDatasets';
 import logger from '../../logger';
 import { fetchWithProxy } from '../../util/fetch/index';
+import { isRemoteDatasetFetchAllowed } from '../util';
 import { RedteamGraderBase, RedteamPluginBase } from './base';
 
 import type { Assertion, AtomicTestCase, PluginConfig, TestCase } from '../../types/index';
@@ -317,8 +318,23 @@ class UnsafeBenchDatasetManager {
         logger.debug(`[unsafebench] Loaded ${this.datasetCache.length} records from local dataset`);
         return;
       } catch (err) {
+        if (!isRemoteDatasetFetchAllowed()) {
+          logger.warn(
+            `[unsafebench] Local dataset not found and remote dataset fetch is disabled. ` +
+              `Run the preload script or set PROMPTFOO_DISABLE_REMOTE_DATASET_FETCH=false.`,
+          );
+          return;
+        }
         logger.warn(`[unsafebench] Failed to load local dataset, falling back to remote: ${err}`);
       }
+    }
+
+    if (!isRemoteDatasetFetchAllowed()) {
+      logger.warn(
+        `[unsafebench] Remote dataset fetch is disabled. ` +
+          `Set PROMPTFOO_LOCAL_DATASETS_DIR with preloaded data or PROMPTFOO_DISABLE_REMOTE_DATASET_FETCH=false.`,
+      );
+      return;
     }
 
     // Fetch a large dataset - aim to get the entire dataset if reasonable

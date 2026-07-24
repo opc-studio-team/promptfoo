@@ -5,6 +5,7 @@ import { getEnvString } from '../../envars';
 import logger from '../../logger';
 import { getRequestTimeoutMs } from '../../providers/shared';
 import { fetchWithTimeout } from '../../util/fetch/index';
+import { isRemoteDatasetFetchAllowed } from '../util';
 import { RedteamPluginBase } from './base';
 
 import type { Assertion, TestCase } from '../../types/index';
@@ -117,8 +118,23 @@ async function fetchDataset(
         .sort(() => Math.random() - 0.5) as CyberSecEvalTestCase[];
       return testCases.slice(0, limit);
     } catch (err) {
+      if (!isRemoteDatasetFetchAllowed()) {
+        logger.warn(
+          `[cyberseceval] Local dataset not found and remote dataset fetch is disabled. ` +
+            `Run the preload script or set PROMPTFOO_DISABLE_REMOTE_DATASET_FETCH=false.`,
+        );
+        return [];
+      }
       logger.warn(`[cyberseceval] Failed to load local dataset, falling back to remote: ${err}`);
     }
+  }
+
+  if (!isRemoteDatasetFetchAllowed()) {
+    logger.warn(
+      `[cyberseceval] Remote dataset fetch is disabled. ` +
+        `Set PROMPTFOO_LOCAL_DATASETS_DIR with preloaded data or PROMPTFOO_DISABLE_REMOTE_DATASET_FETCH=false.`,
+    );
+    return [];
   }
 
   try {

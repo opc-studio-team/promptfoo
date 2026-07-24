@@ -5,6 +5,7 @@
 import dedent from 'dedent';
 import logger from '../../logger';
 import { fetchWithProxy } from '../../util/fetch/index';
+import { isRemoteDatasetFetchAllowed } from '../util';
 import { RedteamGraderBase, RedteamPluginBase } from './base';
 
 import type { Assertion, TestCase } from '../../types/index';
@@ -37,6 +38,14 @@ async function fetchAndParseUrl(url: string): Promise<string[]> {
 }
 
 async function fetchAllTexts(): Promise<string[]> {
+  if (!isRemoteDatasetFetchAllowed()) {
+    logger.warn(
+      '[pliny] Remote dataset fetch is disabled. ' +
+        'Set PROMPTFOO_LOCAL_DATASETS_DIR with preloaded data or PROMPTFOO_DISABLE_REMOTE_DATASET_FETCH=false.',
+    );
+    return [];
+  }
+
   try {
     const allSections = await Promise.all(URLS.map((url) => fetchAndParseUrl(url)));
 
