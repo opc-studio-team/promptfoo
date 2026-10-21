@@ -17,6 +17,7 @@ export interface TransformResponseContext {
 // before being passed to this function. This is because we can't use importModule in the frontend.
 export async function createTransformResponse(
   parser: string | Function | undefined,
+  safeExecutionErrors = false,
 ): Promise<(data: any, text: string, context?: TransformResponseContext) => ProviderResponse> {
   if (!parser) {
     return (data, text) => ({ output: data || text });
@@ -28,6 +29,11 @@ export async function createTransformResponse(
         const result = parser(data, text, context);
         return normalizeResponseTransformResult(result);
       } catch (err) {
+        if (safeExecutionErrors) {
+          // Never copy target data, context, thrown causes or stack into an
+          // execution error. Legacy providers keep their existing behavior.
+          throw new Error('AIG_AGENT_EXECUTION_ERROR');
+        }
         logger.error(
           `[Http Provider] Error in response transform function: ${String(err)}. Data: ${safeJsonStringify(data)}. Text: ${text}. Context: ${safeJsonStringify(context)}.`,
         );
@@ -52,9 +58,13 @@ export async function createTransformResponse(
           'text',
           'context',
           'process',
-          isFunctionExpression
-            ? `try { return (${trimmedParser})(json, text, context); } catch(e) { throw new Error('Transform failed: ' + e.message + ' : ' + text + ' : ' + JSON.stringify(json) + ' : ' + JSON.stringify(context)); }`
-            : `try { return (${trimmedParser}); } catch(e) { throw new Error('Transform failed: ' + e.message + ' : ' + text + ' : ' + JSON.stringify(json) + ' : ' + JSON.stringify(context)); }`,
+          safeExecutionErrors
+            ? isFunctionExpression
+              ? `return (${trimmedParser})(json, text, context);`
+              : `return (${trimmedParser});`
+            : isFunctionExpression
+              ? `try { return (${trimmedParser})(json, text, context); } catch(e) { throw new Error('Transform failed: ' + e.message + ' : ' + text + ' : ' + JSON.stringify(json) + ' : ' + JSON.stringify(context)); }`
+              : `try { return (${trimmedParser}); } catch(e) { throw new Error('Transform failed: ' + e.message + ' : ' + text + ' : ' + JSON.stringify(json) + ' : ' + JSON.stringify(context)); }`,
         );
         let resp: ProviderResponse | string;
         const processShim = getProcessShim();
@@ -66,6 +76,9 @@ export async function createTransformResponse(
 
         return normalizeResponseTransformResult(resp);
       } catch (err) {
+        if (safeExecutionErrors) {
+          throw new Error('AIG_AGENT_EXECUTION_ERROR');
+        }
         logger.error(
           `[Http Provider] Error in response transform: ${String(err)}. Data: ${safeJsonStringify(data)}. Text: ${text}. Context: ${safeJsonStringify(context)}.`,
         );

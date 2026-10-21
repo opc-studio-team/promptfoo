@@ -928,6 +928,8 @@ export const HttpProviderConfigSchema = z.object({
   stateful: z.boolean().optional(),
   transformRequest: z.union([z.string(), z.function()]).optional(),
   transformResponse: z.union([z.string(), z.function()]).optional(),
+  // Set by the platform only for its local custom-HTTP execution proxy.
+  agentExecutionContract: z.literal('aig-agent-http/v1').optional(),
   url: z.string().optional(),
   validateStatus: z
     .union([z.string(), z.function({ input: [z.number()], output: z.boolean() })])
@@ -1912,7 +1914,9 @@ export class HttpProvider implements ApiProvider {
     // This ensures httpTransforms.ts doesn't need to import from ../esm
     this.transformResponse = loadTransformModule(
       this.config.transformResponse || this.config.responseParser,
-    ).then(createTransformResponse);
+    ).then((parser) =>
+      createTransformResponse(parser, this.config.agentExecutionContract === 'aig-agent-http/v1'),
+    );
     this.sessionParser = createSessionParser(this.config.sessionParser);
     this.transformRequest = loadTransformModule(this.config.transformRequest).then(
       createTransformRequest,
