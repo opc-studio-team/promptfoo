@@ -3211,7 +3211,10 @@ export class HttpProvider implements ApiProvider {
     if (typeof parsedOutput === 'string') {
       return parsedOutput;
     }
-    if (parsedOutput?.output && typeof parsedOutput.output === 'string') {
+    if (
+      typeof parsedOutput?.output === 'string' &&
+      (this.config.agentExecutionContract === 'aig-agent-http/v1' || parsedOutput.output)
+    ) {
       return parsedOutput.output;
     }
     return rawText;
@@ -3227,6 +3230,16 @@ export class HttpProvider implements ApiProvider {
     transformedPrompt: any,
     prompt: string,
   ): Promise<ProviderResponse> {
+    if (this.config.agentExecutionContract === 'aig-agent-http/v1') {
+      if (
+        !parsedOutput ||
+        !Object.prototype.hasOwnProperty.call(parsedOutput, 'output') ||
+        typeof parsedOutput.output !== 'string' ||
+        parsedOutput.error
+      ) {
+        throw new Error('AIG_AGENT_INVALID_OUTPUT');
+      }
+    }
     // Estimate tokens if enabled
     let estimatedTokenUsage: Partial<TokenUsage> | undefined;
     if (this.config.tokenEstimation?.enabled) {
@@ -3235,7 +3248,11 @@ export class HttpProvider implements ApiProvider {
       estimatedTokenUsage = await this.estimateTokenUsage(promptText, completionText);
     }
 
-    if (parsedOutput?.output) {
+    if (
+      parsedOutput?.output ||
+      (this.config.agentExecutionContract === 'aig-agent-http/v1' &&
+        Object.prototype.hasOwnProperty.call(parsedOutput, 'output'))
+    ) {
       const result = {
         ...ret,
         ...parsedOutput,

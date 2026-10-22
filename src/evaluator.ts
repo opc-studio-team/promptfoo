@@ -25,6 +25,12 @@ import { getResultIndexKey, sanitizeResultForJsonlArtifact } from './models/eval
 import { generateIdFromPrompt } from './models/prompt';
 import { nodeEvaluatorRuntime } from './node/evaluatorRuntime';
 import { CIProgressReporter } from './progress/ciProgressReporter';
+import {
+  hasEffectiveAgentAssertion,
+  isAgentHTTPProvider,
+  markAgentHTTPResponse,
+  safeAgentHTTPError,
+} from './providers/agentHttpContract';
 import { maybeEmitAzureOpenAiWarning } from './providers/azure/warnings';
 import { providerRegistry } from './providers/providerRegistry';
 import { isPromptfooSampleTarget } from './providers/shared';
@@ -1150,10 +1156,35 @@ async function applyRunEvalResponseOutcome({
   vars: Vars;
 }) {
   if (response.error) {
-    ret.error = response.error;
+    ret.error = isAgentHTTPProvider(provider) ? 'AIG_AGENT_EXECUTION_ERROR' : response.error;
+    if (isAgentHTTPProvider(provider)) {
+      ret.response = { error: ret.error };
+    }
     ret.failureReason = ResultFailureReason.ERROR;
     ret.success = false;
     return;
+  }
+
+  if (isAgentHTTPProvider(provider)) {
+    if (
+      !Object.prototype.hasOwnProperty.call(response, 'output') ||
+      typeof response.output !== 'string'
+    ) {
+      ret.error = 'AIG_AGENT_INVALID_OUTPUT';
+      ret.failureReason = ResultFailureReason.ERROR;
+      ret.success = false;
+      ret.score = 0;
+      ret.response = { error: ret.error };
+      return;
+    }
+    markAgentHTTPResponse(response);
+    if (!hasEffectiveAgentAssertion(test.assert)) {
+      ret.error = 'EVAL_ASSERTION_REQUIRED';
+      ret.failureReason = ResultFailureReason.ERROR;
+      ret.success = false;
+      ret.score = 0;
+      return;
+    }
   }
 
   if (response.output === null || response.output === undefined) {
@@ -1620,6 +1651,21 @@ function buildProviderErrorContext({
   testIdx: number;
 }) {
   const providerId = provider.id();
+  if (isAgentHTTPProvider(provider)) {
+    const safe = safeAgentHTTPError();
+    const candidate = error as { diagnostic?: Record<string, string> };
+    // Re-validate even locally generated error metadata at the persistence boundary.
+    const projected = safeAgentHTTPError({
+      contract_version: 'aig-agent-http/v1',
+      execution_status: 'error',
+      error: candidate?.diagnostic,
+    });
+    return {
+      errorWithStack: safe.message,
+      metadata: { errorContext: projected.diagnostic },
+      logContext: { error: safe.message, ...projected.diagnostic, promptIdx, testIdx },
+    };
+  }
   const providerLabel = provider.label;
   // Type guard for errors with HTTP response information
   const errorWithResponse = error as {

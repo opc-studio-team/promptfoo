@@ -2,6 +2,7 @@ import logger from '../logger';
 import { safeJsonStringify } from '../util/json';
 import { getProcessShim } from '../util/processShim';
 import { sanitizeObject } from '../util/sanitizer';
+import { safeAgentHTTPError } from './agentHttpContract';
 import { normalizeResponseTransformResult } from './transformResult';
 
 import type { FetchWithCacheResult } from '../cache';
@@ -32,7 +33,7 @@ export async function createTransformResponse(
         if (safeExecutionErrors) {
           // Never copy target data, context, thrown causes or stack into an
           // execution error. Legacy providers keep their existing behavior.
-          throw new Error('AIG_AGENT_EXECUTION_ERROR');
+          throw safeAgentHTTPError(data);
         }
         logger.error(
           `[Http Provider] Error in response transform function: ${String(err)}. Data: ${safeJsonStringify(data)}. Text: ${text}. Context: ${safeJsonStringify(context)}.`,
@@ -77,7 +78,7 @@ export async function createTransformResponse(
         return normalizeResponseTransformResult(resp);
       } catch (err) {
         if (safeExecutionErrors) {
-          throw new Error('AIG_AGENT_EXECUTION_ERROR');
+          throw safeAgentHTTPError(data);
         }
         logger.error(
           `[Http Provider] Error in response transform: ${String(err)}. Data: ${safeJsonStringify(data)}. Text: ${text}. Context: ${safeJsonStringify(context)}.`,

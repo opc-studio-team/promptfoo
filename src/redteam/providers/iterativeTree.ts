@@ -592,7 +592,11 @@ async function runRedteamConversation({
 
   const totalTokenUsage: TokenUsage = createEmptyTokenUsage();
 
+  const preserveEmptyWitness =
+    targetProvider.config?.agentExecutionContract === 'aig-agent-http/v1';
   let bestResponse = '';
+  let hasBestResponse = false;
+  let bestGraderResult: GradingResult | undefined;
 
   let stoppingReason: StopReason;
 
@@ -840,9 +844,10 @@ async function runRedteamConversation({
           }),
         );
 
-        if (score > maxScore) {
+        if (score > maxScore || (preserveEmptyWitness && !hasBestResponse)) {
           maxScore = score;
           bestResponse = targetResponse.output;
+          hasBestResponse = true;
           bestNode.prompt = newInjectVar;
           bestNode.inputMaterialization = inputMaterialization;
           bestNode.materializationHandled = materializationHandled;
@@ -958,6 +963,9 @@ async function runRedteamConversation({
               assertion: buildGraderResultAssertion(grade.assertion, assertToUse, rubric),
             };
             graderPassed = grade.pass;
+            if (hasBestResponse && bestNode.prompt === newInjectVar) {
+              bestGraderResult = storedGraderResult;
+            }
           }
         }
 
@@ -984,10 +992,12 @@ async function runRedteamConversation({
           });
           return {
             output: targetResponse.output,
-            prompt: bestNode.prompt,
+            prompt: preserveEmptyWitness ? newInjectVar : bestNode.prompt,
             metadata: {
               highestScore: maxScore,
-              redteamFinalPrompt: bestFinalAttackPrompt || lastFinalAttackPrompt || bestNode.prompt,
+              redteamFinalPrompt: preserveEmptyWitness
+                ? finalInjectVar
+                : bestFinalAttackPrompt || lastFinalAttackPrompt || bestNode.prompt,
               messages: treeOutputs as Record<string, any>[],
               attempts,
               redteamTreeHistory: treeOutputs,
@@ -1035,7 +1045,7 @@ async function runRedteamConversation({
               attempts,
               redteamTreeHistory: treeOutputs,
               stopReason: stoppingReason,
-              storedGraderResult,
+              storedGraderResult: preserveEmptyWitness ? bestGraderResult : storedGraderResult,
               sessionIds: extractSessionIds(treeOutputs),
               ...((bestTransformDisplayVars || lastTransformDisplayVars) && {
                 transformDisplayVars: bestTransformDisplayVars || lastTransformDisplayVars,
@@ -1079,7 +1089,7 @@ async function runRedteamConversation({
               attempts,
               redteamTreeHistory: treeOutputs,
               stopReason: stoppingReason,
-              storedGraderResult,
+              storedGraderResult: preserveEmptyWitness ? bestGraderResult : storedGraderResult,
               sessionIds: extractSessionIds(treeOutputs),
               ...((bestTransformDisplayVars || lastTransformDisplayVars) && {
                 transformDisplayVars: bestTransformDisplayVars || lastTransformDisplayVars,
@@ -1218,8 +1228,10 @@ async function runRedteamConversation({
   });
   return {
     output:
-      bestResponse ||
-      (typeof finalTargetResponse.output === 'string' ? finalTargetResponse.output : ''),
+      preserveEmptyWitness && hasBestResponse
+        ? bestResponse
+        : bestResponse ||
+          (typeof finalTargetResponse.output === 'string' ? finalTargetResponse.output : ''),
     prompt: bestNode.prompt,
     metadata: {
       highestScore: maxScore,
@@ -1228,7 +1240,7 @@ async function runRedteamConversation({
       attempts,
       redteamTreeHistory: treeOutputs,
       stopReason: stoppingReason,
-      storedGraderResult,
+      storedGraderResult: preserveEmptyWitness ? bestGraderResult : storedGraderResult,
       sessionIds: extractSessionIds(treeOutputs),
       ...((bestTransformDisplayVars || lastTransformDisplayVars) && {
         transformDisplayVars: bestTransformDisplayVars || lastTransformDisplayVars,
@@ -1237,6 +1249,7 @@ async function runRedteamConversation({
     tokenUsage: totalTokenUsage,
     guardrails: finalTargetResponse?.guardrails,
     ...(finalTargetResponse.error ? { error: finalTargetResponse.error } : {}),
+    ...(preserveEmptyWitness && !hasBestResponse ? { error: 'AIG_AGENT_EXECUTION_ERROR' } : {}),
   };
 }
 

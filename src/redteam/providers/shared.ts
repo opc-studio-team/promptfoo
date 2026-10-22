@@ -5,6 +5,11 @@ import { shouldAttemptRemoteBlobUpload } from '../../blobs/remoteUpload';
 import cliState from '../../cliState';
 import { getEnvBool } from '../../envars';
 import logger from '../../logger';
+import {
+  isAgentHTTPProvider,
+  isAgentHTTPResponse,
+  markAgentHTTPResponse,
+} from '../../providers/agentHttpContract';
 import { OpenAiChatCompletionProvider } from '../../providers/openai/chat';
 import { PromptfooChatCompletionProvider } from '../../providers/promptfoo';
 import { type RateLimitRegistry, wrapProviderWithRateLimiting } from '../../scheduler';
@@ -342,6 +347,9 @@ export async function getTargetResponse(
     if (error instanceof Error && error.name === 'AbortError') {
       throw error;
     }
+    if (isAgentHTTPProvider(targetProvider)) {
+      throw new Error('AIG_AGENT_EXECUTION_ERROR');
+    }
     return {
       output: '',
       error: (error as Error).message,
@@ -356,6 +364,16 @@ export async function getTargetResponse(
     await sleep(targetProvider.delay);
   }
   const tokenUsage = { numRequests: 1, ...targetRespRaw.tokenUsage };
+  if (isAgentHTTPProvider(targetProvider)) {
+    if (
+      targetRespRaw.error ||
+      !Object.prototype.hasOwnProperty.call(targetRespRaw, 'output') ||
+      typeof targetRespRaw.output !== 'string'
+    ) {
+      throw new Error('AIG_AGENT_EXECUTION_ERROR');
+    }
+    return markAgentHTTPResponse({ ...targetRespRaw, tokenUsage }) as TargetResponse;
+  }
   const hasOutput = targetRespRaw && Object.prototype.hasOwnProperty.call(targetRespRaw, 'output');
   const hasError = targetRespRaw && Object.prototype.hasOwnProperty.call(targetRespRaw, 'error');
 
@@ -588,7 +606,11 @@ export async function externalizeResponseForRedteamHistory<T extends ProviderRes
     return response;
   }
   const blobbed = await extractAndStoreBinaryData(response, context);
-  return (blobbed as T) || response;
+  const result = (blobbed as T) || response;
+  if (isAgentHTTPResponse(response)) {
+    markAgentHTTPResponse(result);
+  }
+  return result;
 }
 
 /**

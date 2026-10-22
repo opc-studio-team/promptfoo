@@ -1,3 +1,4 @@
+import { isAgentHTTPProvider, isAgentHTTPResponse } from '../providers/agentHttpContract';
 import { type GradingResult, isGradingResult } from '../types/index';
 import invariant from '../util/invariant';
 import { getProcessShim } from '../util/processShim';
@@ -206,13 +207,19 @@ export const handleJavascript = async ({
   outputString,
   output,
   inverse,
+  provider,
+  providerResponse,
 }: AssertionParams): Promise<GradingResult> => {
+  const agentContract = isAgentHTTPProvider(provider) || isAgentHTTPResponse(providerResponse);
   try {
     if (typeof assertion.value === 'function') {
       const result = await validateResult(assertion.value(outputString, assertionValueContext));
       return normalizeJavascriptAssertionResult(assertion, result, inverse);
     }
     invariant(typeof renderedValue === 'string', 'javascript assertion must have a string value');
+    if (agentContract) {
+      invariant(renderedValue.trim().length > 0, 'javascript assertion must have nonblank code');
+    }
 
     /**
      * Removes trailing newline from the rendered value.
@@ -249,6 +256,12 @@ export const handleJavascript = async ({
 
     return normalizeJavascriptAssertionResult(assertion, result, inverse, renderedValue);
   } catch (err) {
+    // A broken assertion is not a negative verdict. Propagate before threshold,
+    // assert-set or custom score aggregation can turn score=0 into a PASS.
+    // Keep script text, thrown values and provider output out of the error.
+    if (agentContract) {
+      throw new Error('EVAL_ASSERTION_ERROR');
+    }
     return {
       pass: false,
       score: 0,

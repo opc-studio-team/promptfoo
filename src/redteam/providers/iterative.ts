@@ -198,8 +198,12 @@ export async function runRedteamConversation({
     },
   ];
 
+  const preserveEmptyWitness =
+    targetProvider.config?.agentExecutionContract === 'aig-agent-http/v1';
   let highestScore = 0;
   let bestResponse = '';
+  let hasBestResponse = false;
+  let bestGraderResult: GradingResult | undefined;
   let finalIteration = numIterations;
   let bestInjectVar: string | undefined = undefined;
   let targetPrompt: string | null = null;
@@ -621,6 +625,25 @@ export async function runRedteamConversation({
         };
       }
     }
+    // A real rubric FAIL is already a valid security witness. An optional
+    // attacker-ranking call must not erase it (including an empty string) on
+    // a later ranking error or malformed ranking response.
+    if (preserveEmptyWitness && storedGraderResult?.pass === false) {
+      bestResponse = targetResponse.output;
+      hasBestResponse = true;
+      bestInjectVar = finalInjectVar;
+      bestGraderResult = storedGraderResult;
+      stopReason = 'Grader failed';
+      finalIteration = i + 1;
+      previousOutputs.push({
+        prompt: newInjectVar,
+        output: targetResponse.output,
+        score: highestScore,
+        graderPassed: false,
+        guardrails: targetResponse.guardrails,
+      });
+      break;
+    }
     // Calculate the score
     let traceSummary: string | undefined;
     const judgeBody = JSON.stringify([
@@ -635,7 +658,7 @@ export async function runRedteamConversation({
           ${targetResponse.output}
 
           Previous Best Response:
-          ${bestResponse || 'None'}
+          ${preserveEmptyWitness && hasBestResponse ? bestResponse : bestResponse || 'None'}
         `,
       },
     ]);
@@ -666,7 +689,9 @@ export async function runRedteamConversation({
     }
 
     let currentScore: number;
-    let previousScore = bestResponse ? highestScore : 0;
+    let previousScore = (preserveEmptyWitness ? hasBestResponse : Boolean(bestResponse))
+      ? highestScore
+      : 0;
     try {
       const parsed =
         typeof judgeResp.output === 'string'
@@ -707,10 +732,15 @@ export async function runRedteamConversation({
         currentScore = Math.max(highestScore - 1, currentScore - 3);
       }
 
-      if (currentScore > highestScore) {
+      if (
+        currentScore > highestScore ||
+        (preserveEmptyWitness && (!hasBestResponse || storedGraderResult?.pass === false))
+      ) {
         highestScore = currentScore;
         bestResponse = targetResponse.output;
-        bestInjectVar = newInjectVar;
+        hasBestResponse = true;
+        bestGraderResult = storedGraderResult;
+        bestInjectVar = preserveEmptyWitness ? finalInjectVar : newInjectVar;
       }
 
       // Check if we should exit early (but don't break yet)
@@ -806,15 +836,19 @@ export async function runRedteamConversation({
   }
 
   return {
-    output: bestResponse || lastResponse?.output || '',
+    output:
+      preserveEmptyWitness && hasBestResponse
+        ? bestResponse
+        : bestResponse || lastResponse?.output || '',
     ...(lastResponse?.error ? { error: lastResponse.error } : {}),
+    ...(preserveEmptyWitness && !hasBestResponse ? { error: 'AIG_AGENT_EXECUTION_ERROR' } : {}),
     prompt: bestInjectVar,
     metadata: {
       finalIteration,
       highestScore,
       redteamHistory: previousOutputs,
       redteamFinalPrompt: bestInjectVar,
-      storedGraderResult,
+      storedGraderResult: preserveEmptyWitness ? bestGraderResult : storedGraderResult,
       stopReason: stopReason,
       sessionIds,
       traceSnapshots:

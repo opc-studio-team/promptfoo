@@ -47,6 +47,10 @@ for (const row of summary.results) {
     assert.equal(row.failureReason, ResultFailureReason.ERROR);
     assert.match(row.error || '', /AIG_AGENT_EXECUTION_ERROR/);
     assert.equal(row.response?.output, undefined);
+    const diagnostic = row.metadata?.errorContext as Record<string, string>;
+    assert.equal(diagnostic.code, 'HTTP_STATUS_ERROR');
+    assert.equal(diagnostic.category, 'http');
+    assert.match(diagnostic.diagnostic_id, /^[a-f0-9-]{36}$/i);
   } else {
     assert.equal(row.success, true);
     assert.equal(row.response?.output, 'valid answer');
@@ -138,17 +142,25 @@ try {
     { cache: false, maxConcurrency: 1, showProgressBar: false },
   );
   const invalidSummary = await invalidResult.toEvaluateSummary();
-  assert.equal(invalidSummary.stats.errors, invalidCases.length);
-  assert.equal(invalidSummary.stats.successes, 0);
+  assert.equal(invalidSummary.stats.errors, invalidCases.length - 2);
+  assert.equal(invalidSummary.stats.successes, 2);
   assert.equal(invalidSummary.stats.failures, 0);
-  assert.equal(assertions, 2, 'invalid envelopes reached final assertions');
+  assert.equal(assertions, 4, 'only valid string envelopes may reach assertions');
   for (const row of invalidSummary.results) {
+    if (['empty-content', 'whitespace-content'].includes(String(row.vars.prompt))) {
+      assert.equal(row.response?.output, row.vars.prompt === 'empty-content' ? '' : ' \n\t ');
+      continue;
+    }
     assert.equal(row.failureReason, ResultFailureReason.ERROR);
     assert.equal(row.response?.output, undefined);
     assert.match(row.error || '', /AIG_AGENT_EXECUTION_ERROR/);
   }
-  assert.ok(!JSON.stringify(invalidSummary).includes('MALFORMED_ENVELOPE_CANARY'));
-  console.log('AIG_CONTRACT_STRICT_OK errors=8 successes=0 failures=0 assertions=0');
+  assert.ok(
+    !JSON.stringify(
+      invalidSummary.results.filter((row) => row.failureReason === ResultFailureReason.ERROR),
+    ).includes('MALFORMED_ENVELOPE_CANARY'),
+  );
+  console.log('AIG_CONTRACT_STRICT_OK errors=6 successes=2 failures=0 assertions=2');
 } finally {
   await new Promise<void>((resolve, reject) =>
     malformedProxy.close((error) => (error ? reject(error) : resolve())),
