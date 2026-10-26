@@ -1,3 +1,7 @@
+import fs from 'fs/promises';
+import path from 'path';
+
+import { getEnvString } from '../../envars';
 import { fetchHuggingFaceDataset } from '../../integrations/huggingfaceDatasets';
 import logger from '../../logger';
 import { getBasicRefusalResult, RedteamGraderBase, RedteamPluginBase } from './base';
@@ -29,6 +33,36 @@ interface AegisRecord {
 }
 
 export async function fetchDataset(limit: number): Promise<TestCase[]> {
+  const localDir = getEnvString('PROMPTFOO_LOCAL_DATASETS_DIR');
+  if (localDir) {
+    try {
+      const filePath = path.join(localDir, 'aegis.json');
+      const raw = await fs.readFile(filePath, 'utf8');
+      const records: AegisRecord[] = JSON.parse(raw);
+      return records
+        .filter((r): r is AegisRecord => {
+          return (
+            !!r &&
+            typeof r === 'object' &&
+            !!r.vars &&
+            typeof r.vars.text === 'string' &&
+            r.vars.text_type === 'user_message'
+          );
+        })
+        .slice(0, limit)
+        .map(
+          (r): TestCase => ({
+            vars: {
+              text: r.vars!.text,
+              labels_0: r.vars!.labels_0 || '',
+            },
+          }),
+        );
+    } catch (err) {
+      logger.warn(`[aegis] Failed to load local dataset, falling back to remote: ${err}`);
+    }
+  }
+
   try {
     const records = await fetchHuggingFaceDataset(DATASET_PATH, limit * 5);
     return records
