@@ -180,7 +180,10 @@ export async function runMetaAgentRedteam({
 
   let vulnerabilityAchieved = false;
   let bestPrompt: string | undefined = undefined;
+  const preserveEmptyWitness =
+    targetProvider.config?.agentExecutionContract === 'aig-agent-http/v1';
   let bestResponse = '';
+  let hasBestResponse = false;
   let finalIteration = numIterations;
   let storedGraderResult: GradingResult | undefined = undefined;
   let stopReason: IterativeMetaMetadata['stopReason'] = 'Max iterations reached';
@@ -689,11 +692,17 @@ export async function runMetaAgentRedteam({
       inputVars: currentRenderInputVars,
     });
 
+    if (preserveEmptyWitness) {
+      bestPrompt = finalAttackPrompt;
+      bestResponse = targetResponse.output;
+      hasBestResponse = true;
+    }
     // Only a valid grader verdict can establish a vulnerability.
     if (graderResult?.pass === false && !graderError) {
       vulnerabilityAchieved = true;
       bestPrompt = finalAttackPrompt; // Use transformed prompt (e.g., fetchPrompt) not jailbreak
       bestResponse = targetResponse.output;
+      hasBestResponse = true;
       stopReason = 'Grader failed';
       finalIteration = i + 1;
 
@@ -708,7 +717,10 @@ export async function runMetaAgentRedteam({
   const error = agentRequestError || failClosedError || lastResponse?.error;
   return preserveSelectedError(
     {
-      output: bestResponse || lastResponse?.output || '',
+      output:
+        preserveEmptyWitness && hasBestResponse
+          ? bestResponse
+          : bestResponse || lastResponse?.output || '',
       prompt: bestPrompt,
       ...(error ? { error } : {}),
       metadata: {

@@ -791,6 +791,8 @@ export const HttpProviderConfigSchema = HttpProviderConfigFieldsSchema.strip().e
   sessionParser: z.union([z.string(), z.function()]).optional(),
   transformRequest: z.union([z.string(), z.function()]).optional(),
   transformResponse: z.union([z.string(), z.function()]).optional(),
+  // Set by the platform only for its local custom-HTTP execution proxy.
+  agentExecutionContract: z.literal('aig-agent-http/v1').optional(),
   validateStatus: z
     .union([z.string(), z.function({ input: [z.number()], output: z.boolean() })])
     .optional(),
@@ -1774,7 +1776,9 @@ export class HttpProvider implements ApiProvider {
     // This ensures httpTransforms.ts doesn't need to import from ../esm
     this.transformResponse = loadTransformModule(
       this.config.transformResponse || this.config.responseParser,
-    ).then(createTransformResponse);
+    ).then((parser) =>
+      createTransformResponse(parser, this.config.agentExecutionContract === 'aig-agent-http/v1'),
+    );
     this.sessionParser = createSessionParser(this.config.sessionParser);
     this.transformRequest = loadTransformModule(this.config.transformRequest).then(
       createTransformRequest,
@@ -3028,7 +3032,10 @@ export class HttpProvider implements ApiProvider {
     if (typeof parsedOutput === 'string') {
       return parsedOutput;
     }
-    if (parsedOutput?.output && typeof parsedOutput.output === 'string') {
+    if (
+      typeof parsedOutput?.output === 'string' &&
+      (this.config.agentExecutionContract === 'aig-agent-http/v1' || parsedOutput.output)
+    ) {
       return parsedOutput.output;
     }
     return rawText;
@@ -3053,6 +3060,16 @@ export class HttpProvider implements ApiProvider {
       typeof originalResponse.tokenUsage === 'object'
         ? (originalResponse.tokenUsage as Partial<TokenUsage>)
         : undefined;
+    if (this.config.agentExecutionContract === 'aig-agent-http/v1') {
+      if (
+        !parsedOutput ||
+        !Object.prototype.hasOwnProperty.call(parsedOutput, 'output') ||
+        typeof parsedOutput.output !== 'string' ||
+        parsedOutput.error
+      ) {
+        throw new Error('AIG_AGENT_INVALID_OUTPUT');
+      }
+    }
     // Estimate tokens if enabled
     let estimatedTokenUsage: Partial<TokenUsage> | undefined;
     if (this.config.tokenEstimation?.enabled) {

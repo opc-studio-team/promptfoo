@@ -146,6 +146,65 @@ describe('synthesize', () => {
   });
 
   // Input handling tests
+  describe('AIG language fallback', () => {
+    afterEach(() => vi.restoreAllMocks());
+
+    it.each(['zh', 'fr', 'ja'])(
+      'retries empty %s in English and retains requested metadata',
+      async (language) => {
+        const action = vi
+          .fn()
+          .mockResolvedValueOnce([])
+          .mockResolvedValueOnce([{ vars: { query: 'synthetic English fallback' } }]);
+        vi.spyOn(Plugins, 'find').mockReturnValue({ key: 'synthetic', action });
+        const result = await synthesize({
+          language,
+          numTests: 1,
+          plugins: [{ id: 'synthetic', numTests: 1 }],
+          prompts: ['{{query}}'],
+          purpose: 'synthetic',
+          entities: [],
+          strategies: [],
+          targetIds: ['test-provider'],
+        });
+        expect(action).toHaveBeenCalledTimes(2);
+        expect(action.mock.calls[0][0].config.language).toBe(language);
+        expect(action.mock.calls[1][0].config).not.toHaveProperty('language');
+        expect(result.testCases).toHaveLength(1);
+        expect(result.testCases[0].metadata?.language).toBe(language);
+        expect(result.testCases[0].vars?.query).toBe('synthetic English fallback');
+      },
+    );
+
+    it.each(['empty', 'throw', 'english', 'success'])(
+      'does not hide fallback boundary: %s',
+      async (mode) => {
+        const action = vi.fn().mockResolvedValue([]);
+        if (mode === 'throw') {
+          action.mockRejectedValueOnce(new Error('synthetic failure'));
+        } else if (mode === 'success') {
+          action.mockResolvedValueOnce([{ vars: { query: 'synthetic first attempt' } }]);
+        }
+        vi.spyOn(Plugins, 'find').mockReturnValue({ key: 'synthetic', action });
+        const result = await synthesize({
+          language: mode === 'english' ? 'en' : 'zh',
+          numTests: 1,
+          plugins: [{ id: 'synthetic', numTests: 1 }],
+          prompts: ['{{query}}'],
+          purpose: 'synthetic',
+          entities: [],
+          strategies: [],
+          targetIds: ['test-provider'],
+        });
+        expect(action).toHaveBeenCalledTimes(mode === 'empty' ? 2 : 1);
+        expect(result.testCases).toHaveLength(mode === 'success' ? 1 : 0);
+        if (mode !== 'success') {
+          expect(logger.warn).toHaveBeenCalled();
+        }
+      },
+    );
+  });
+
   describe('Input handling', () => {
     it('should use provided purpose and entities if given', async () => {
       const result = await synthesize({

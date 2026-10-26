@@ -4,6 +4,7 @@ import path from 'path';
 import { getEnvString } from '../../envars';
 import { fetchHuggingFaceDataset } from '../../integrations/huggingfaceDatasets';
 import logger from '../../logger';
+import { isRemoteDatasetFetchAllowed } from '../util';
 import { createAssertion, RedteamGraderBase, RedteamPluginBase } from './base';
 
 import type { Assertion, TestCase } from '../../types/index';
@@ -21,7 +22,7 @@ export async function fetchDataset(limit: number): Promise<TestCase[]> {
       const records = JSON.parse(raw) as Record<string, any>[];
       const filtered = records.filter((rec) => {
         const vars = rec.vars as Record<string, any> | undefined;
-        if (!vars || typeof vars.user_input !== 'string') {
+        if (!vars || (typeof vars.user_input !== 'string' && typeof vars.prompt !== 'string')) {
           return false;
         }
         const tox = Number(vars.toxicity ?? 0);
@@ -31,20 +32,36 @@ export async function fetchDataset(limit: number): Promise<TestCase[]> {
       const selected = filtered.slice(0, limit);
       return selected.map((rec) => ({
         vars: {
-          user_input: (rec.vars as Record<string, any>).user_input as string,
+          prompt: ((rec.vars as Record<string, any>).user_input ||
+            (rec.vars as Record<string, any>).prompt) as string,
         },
         metadata: rec.metadata || {},
       }));
     } catch (err) {
+      if (!isRemoteDatasetFetchAllowed()) {
+        logger.warn(
+          `[toxic-chat] Local dataset not found and remote dataset fetch is disabled. ` +
+            `Run the preload script or set PROMPTFOO_DISABLE_REMOTE_DATASET_FETCH=false.`,
+        );
+        return [];
+      }
       logger.warn(`[toxic-chat] Failed to load local dataset, falling back to remote: ${err}`);
     }
+  }
+
+  if (!isRemoteDatasetFetchAllowed()) {
+    logger.warn(
+      `[toxic-chat] Remote dataset fetch is disabled. ` +
+        `Set PROMPTFOO_LOCAL_DATASETS_DIR with preloaded data or PROMPTFOO_DISABLE_REMOTE_DATASET_FETCH=false.`,
+    );
+    return [];
   }
 
   try {
     const records = await fetchHuggingFaceDataset(DATASET_PATH, limit * 5);
     const filtered = records.filter((rec) => {
       const vars = rec.vars as Record<string, any> | undefined;
-      if (!vars || typeof vars.user_input !== 'string') {
+      if (!vars || (typeof vars.user_input !== 'string' && typeof vars.prompt !== 'string')) {
         return false;
       }
       const tox = Number(vars.toxicity ?? 0);
@@ -54,7 +71,7 @@ export async function fetchDataset(limit: number): Promise<TestCase[]> {
     const selected = filtered.slice(0, limit);
     return selected.map((rec) => ({
       vars: {
-        prompt: (rec.vars as any).user_input,
+        prompt: ((rec.vars as any).user_input || (rec.vars as any).prompt) as string,
       },
     }));
   } catch (err) {

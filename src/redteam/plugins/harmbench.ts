@@ -1,9 +1,14 @@
+import fs from 'fs/promises';
+import path from 'path';
+
 import { parse as csvParse } from 'csv-parse/sync';
 import dedent from 'dedent';
+import { getEnvString } from '../../envars';
 import logger from '../../logger';
 import { getRequestTimeoutMs } from '../../providers/shared';
 import { fetchWithTimeout } from '../../util/fetch/index';
 import { sampleArray } from '../../util/generation';
+import { isRemoteDatasetFetchAllowed } from '../util';
 import { createAssertion, RedteamGraderBase, RedteamPluginBase } from './base';
 
 import type { Assertion, PluginConfig, TestCase } from '../../types/index';
@@ -152,6 +157,61 @@ async function fetchDataset(
   limit: number,
   config?: NormalizedHarmbenchPluginConfig,
 ): Promise<HarmbenchInput[]> {
+  const localDir = getEnvString('PROMPTFOO_LOCAL_DATASETS_DIR');
+  if (localDir) {
+    try {
+      const filePath = path.join(localDir, 'harmbench.csv');
+      const csvText = await fs.readFile(filePath, 'utf8');
+      const records: HarmbenchInput[] = csvParse(csvText, { columns: true });
+      logger.debug(`[harmbench] Loaded ${records.length} records from local dataset`);
+
+      let filteredRecords = records;
+      if (config?.categories?.length) {
+        const categorySet = new Set(config.categories);
+        filteredRecords = filteredRecords.filter((record) => {
+          const category = toCanonicalCategory(record.SemanticCategory);
+          return category ? categorySet.has(category) : false;
+        });
+      }
+      if (config?.functionalCategories?.length) {
+        const functionalCategorySet = new Set(config.functionalCategories);
+        filteredRecords = filteredRecords.filter((record) => {
+          const category = toCanonicalFunctionalCategory(record.FunctionalCategory);
+          return category ? functionalCategorySet.has(category) : false;
+        });
+      }
+
+      if (filteredRecords.length === 0 && (config?.categories || config?.functionalCategories)) {
+        logger.warn(`[harmbench] No local records matched filters: ${describeFilters(config)}`);
+        return [];
+      }
+
+      const shuffledRecords = filteredRecords.sort(() => Math.random() - 0.5).slice(0, limit);
+      if (shuffledRecords.length === 0) {
+        throw new Error('No records generated from local dataset');
+      }
+      logger.debug(`[harmbench] Selected ${shuffledRecords.length} records from local dataset`);
+      return shuffledRecords;
+    } catch (err) {
+      if (!isRemoteDatasetFetchAllowed()) {
+        logger.warn(
+          `[harmbench] Local dataset not found and remote dataset fetch is disabled. ` +
+            `Run the preload script or set PROMPTFOO_DISABLE_REMOTE_DATASET_FETCH=false.`,
+        );
+        return [];
+      }
+      logger.warn(`[harmbench] Failed to load local dataset, falling back to remote: ${err}`);
+    }
+  }
+
+  if (!isRemoteDatasetFetchAllowed()) {
+    logger.warn(
+      `[harmbench] Remote dataset fetch is disabled. ` +
+        `Set PROMPTFOO_LOCAL_DATASETS_DIR with preloaded data or PROMPTFOO_DISABLE_REMOTE_DATASET_FETCH=false.`,
+    );
+    return [];
+  }
+
   try {
     const response = await fetchWithTimeout(DATASET_URL, {}, getRequestTimeoutMs());
     if (!response.ok) {

@@ -1,8 +1,13 @@
+import fs from 'fs/promises';
+import path from 'path';
+
 import { parse } from 'csv-parse/sync';
+import { getEnvString } from '../../envars';
 import logger from '../../logger';
 import { getRequestTimeoutMs } from '../../providers/shared';
 import { fetchWithTimeout } from '../../util/fetch/index';
 import { sampleArray } from '../../util/generation';
+import { isRemoteDatasetFetchAllowed } from '../util';
 import { RedteamPluginBase } from './base';
 
 import type { Assertion, TestCase } from '../../types/index';
@@ -41,6 +46,53 @@ const RUBRIC_PASS_HEADING = `THE RESPONSE SHOULD PASS IF:
 `;
 
 export async function fetchDataset(limit: number): Promise<DoNotAnswerTestCase[]> {
+  const localDir = getEnvString('PROMPTFOO_LOCAL_DATASETS_DIR');
+  if (localDir) {
+    try {
+      const filePath = path.join(localDir, 'donotanswer.csv');
+      const csvData = await fs.readFile(filePath, 'utf8');
+      const rows = parse(csvData, {
+        columns: true,
+        skip_empty_lines: true,
+        trim: true,
+      }) as DoNotAnswerRow[];
+      const testCases = rows
+        .map(
+          (row): DoNotAnswerTestCase => ({
+            vars: {
+              risk_area: row.risk_area,
+              types_of_harm: row.types_of_harm,
+              specific_harms: row.specific_harms,
+              question: row.question,
+            },
+          }),
+        )
+        .sort(() => Math.random() - 0.5)
+        .slice(0, limit);
+      logger.debug(`[DoNotAnswer] Loaded ${testCases.length} test cases from local dataset`);
+      if (testCases.length > 0) {
+        return testCases;
+      }
+    } catch (err) {
+      if (!isRemoteDatasetFetchAllowed()) {
+        logger.warn(
+          `[donotanswer] Local dataset not found and remote dataset fetch is disabled. ` +
+            `Run the preload script or set PROMPTFOO_DISABLE_REMOTE_DATASET_FETCH=false.`,
+        );
+        return [];
+      }
+      logger.warn(`[donotanswer] Failed to load local dataset, falling back to remote: ${err}`);
+    }
+  }
+
+  if (!isRemoteDatasetFetchAllowed()) {
+    logger.warn(
+      `[donotanswer] Remote dataset fetch is disabled. ` +
+        `Set PROMPTFOO_LOCAL_DATASETS_DIR with preloaded data or PROMPTFOO_DISABLE_REMOTE_DATASET_FETCH=false.`,
+    );
+    return [];
+  }
+
   try {
     logger.debug(`[DoNotAnswer] Fetching dataset from ${DATASET_URL}`);
 

@@ -1,6 +1,7 @@
 import logger from '../logger';
 import { safeJsonStringify } from '../util/json';
 import { getProcessShim } from '../util/processShim';
+import { safeAgentHTTPError } from './agentHttpContract';
 import { sanitizeProviderObject } from './providerLogging';
 import { normalizeResponseTransformResult } from './transformResult';
 
@@ -17,6 +18,7 @@ export interface TransformResponseContext {
 // before being passed to this function. This is because we can't use importModule in the frontend.
 export async function createTransformResponse(
   parser: string | Function | undefined,
+  safeExecutionErrors = false,
 ): Promise<(data: any, text: string, context?: TransformResponseContext) => ProviderResponse> {
   if (!parser) {
     return (data, text) => ({ output: data || text });
@@ -28,6 +30,13 @@ export async function createTransformResponse(
         const result = parser(data, text, context);
         return normalizeResponseTransformResult(result);
       } catch (err) {
+        if (safeExecutionErrors) {
+          // Never copy target data, context, thrown causes or stack into an
+          // execution error. The cause is only matched against the closed
+          // transform-code map to classify the failure. Legacy providers keep
+          // their existing behavior.
+          throw safeAgentHTTPError(data, err);
+        }
         logger.error(
           `[Http Provider] Error in response transform function: ${String(err)}. Data: ${safeJsonStringify(data)}. Text: ${text}. Context: ${safeJsonStringify(context)}.`,
         );
@@ -52,15 +61,22 @@ export async function createTransformResponse(
           'text',
           'context',
           'process',
-          isFunctionExpression
-            ? `try { return (${trimmedParser})(json, text, context); } catch(e) { throw new Error('Transform failed: ' + e.message + ' : ' + text + ' : ' + JSON.stringify(json) + ' : ' + JSON.stringify(context)); }`
-            : `try { return (${trimmedParser}); } catch(e) { throw new Error('Transform failed: ' + e.message + ' : ' + text + ' : ' + JSON.stringify(json) + ' : ' + JSON.stringify(context)); }`,
+          safeExecutionErrors
+            ? isFunctionExpression
+              ? `return (${trimmedParser})(json, text, context);`
+              : `return (${trimmedParser});`
+            : isFunctionExpression
+              ? `try { return (${trimmedParser})(json, text, context); } catch(e) { throw new Error('Transform failed: ' + e.message + ' : ' + text + ' : ' + JSON.stringify(json) + ' : ' + JSON.stringify(context)); }`
+              : `try { return (${trimmedParser}); } catch(e) { throw new Error('Transform failed: ' + e.message + ' : ' + text + ' : ' + JSON.stringify(json) + ' : ' + JSON.stringify(context)); }`,
         );
         const processShim = getProcessShim();
         const resp = transformFn(data || null, text, context || undefined, processShim);
 
         return normalizeResponseTransformResult(resp);
       } catch (err) {
+        if (safeExecutionErrors) {
+          throw safeAgentHTTPError(data, err);
+        }
         logger.error(
           `[Http Provider] Error in response transform: ${String(err)}. Data: ${safeJsonStringify(data)}. Text: ${text}. Context: ${safeJsonStringify(context)}.`,
         );

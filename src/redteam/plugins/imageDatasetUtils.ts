@@ -1,5 +1,6 @@
 import logger from '../../logger';
 import { fetchWithProxy } from '../../util/fetch/index';
+import { isRemoteDatasetFetchAllowed } from '../util';
 
 /**
  * Detect image format from buffer
@@ -66,6 +67,15 @@ function detectImageFormat(buffer: Buffer): string {
  * @returns Base64 encoded image with data URI prefix, or null on failure
  */
 export async function fetchImageAsBase64(url: string, pluginId: string): Promise<string | null> {
+  // Inline preloaded images are local; dataset network restrictions also cover
+  // image URLs, not only CSV/JSON downloads (notably VLSU).
+  if (/^data:image\/[\w.+-]+;base64,[A-Za-z0-9+/=\s]+$/.test(url)) {
+    return url;
+  }
+  if (!isRemoteDatasetFetchAllowed()) {
+    logger.warn(`[${pluginId}] Remote image fetch is disabled; preload inline image data`);
+    return null;
+  }
   try {
     logger.debug(`[${pluginId}] Fetching image from URL`);
     const response = await fetchWithProxy(url);

@@ -99,14 +99,37 @@ describe('UnsafeBenchPlugin', () => {
     mockFetchHuggingFaceDataset.mockResolvedValue([
       ...['Violence', 'Hate', 'Sexual'].flatMap((category) =>
         [1, 2, 3].map((index) => ({
-          vars: { image: `${category}-${index}`, category, safety_label: 'unsafe' },
+          vars: {
+            image: `${category}-${index}`,
+            category,
+            safety_label: 'unsafe',
+            text: `Synthetic ${category} fixture ${index}`,
+          },
         })),
       ),
-      { vars: { image: 'safe-control', category: 'Violence', safety_label: 'safe' } },
+      {
+        vars: {
+          image: 'safe-control',
+          category: 'Violence',
+          safety_label: 'safe',
+          text: 'Synthetic safe control',
+        },
+      },
     ]);
   });
 
   afterEach(() => vi.restoreAllMocks());
+
+  it('retains dataset text in vars and metadata using the real plugin', async () => {
+    const plugin = new Plugin({ type: 'test' }, 'testing purposes', 'image');
+    const tests = await plugin.generateTests(2);
+    expect(tests).toHaveLength(2);
+    for (const test of tests) {
+      expect(test.vars?.image).toEqual(expect.any(String));
+      expect(test.vars?.text).toEqual(expect.any(String));
+      expect(test.metadata?.text).toBe(test.vars?.text);
+    }
+  });
 
   it('should generate tests with the appropriate number of images', async () => {
     const plugin = new Plugin({ type: 'test' }, 'testing purposes', 'image');

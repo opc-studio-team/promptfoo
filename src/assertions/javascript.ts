@@ -1,4 +1,5 @@
 import { Parser, type TokenType, tokTypes, type YieldExpression } from 'acorn';
+import { isAgentHTTPProvider, isAgentHTTPResponse } from '../providers/agentHttpContract';
 import { type GradingResult } from '../types/index';
 import invariant from '../util/invariant';
 import { getProcessShim } from '../util/processShim';
@@ -244,13 +245,19 @@ export const handleJavascript = async ({
   outputString,
   output,
   inverse,
+  provider,
+  providerResponse,
 }: AssertionParams): Promise<GradingResult> => {
+  const agentContract = isAgentHTTPProvider(provider) || isAgentHTTPResponse(providerResponse);
   try {
     if (typeof assertion.value === 'function') {
       const result = await validateResult(assertion.value(outputString, assertionValueContext));
       return normalizeJavascriptAssertionResult(assertion, result, inverse);
     }
     invariant(typeof renderedValue === 'string', 'javascript assertion must have a string value');
+    if (agentContract) {
+      invariant(renderedValue.trim().length > 0, 'javascript assertion must have nonblank code');
+    }
 
     /**
      * Removes trailing newline from the rendered value.
@@ -292,6 +299,10 @@ export const handleJavascript = async ({
 
     return normalizeJavascriptAssertionResult(assertion, result, inverse, renderedValue);
   } catch (err) {
+    // Assertion execution failures are not security verdicts for the AIG contract.
+    if (agentContract) {
+      throw new Error('EVAL_ASSERTION_ERROR');
+    }
     if (err instanceof SafeModeError) {
       return {
         pass: false,

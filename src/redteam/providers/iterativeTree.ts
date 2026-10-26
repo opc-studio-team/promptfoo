@@ -627,7 +627,10 @@ async function runRedteamConversation({
 
   const totalTokenUsage: TokenUsage = createEmptyTokenUsage();
 
+  const preserveEmptyWitness =
+    targetProvider.config?.agentExecutionContract === 'aig-agent-http/v1';
   let bestResponse = '';
+  let hasBestResponse = false;
 
   let stoppingReason: StopReason;
 
@@ -647,8 +650,10 @@ async function runRedteamConversation({
     return preserveSelectedError(
       {
         output:
-          bestResponse ||
-          (typeof finalTargetResponse.output === 'string' ? finalTargetResponse.output : ''),
+          preserveEmptyWitness && hasBestResponse
+            ? bestResponse
+            : bestResponse ||
+              (typeof finalTargetResponse.output === 'string' ? finalTargetResponse.output : ''),
         prompt: bestNode.prompt,
         metadata: {
           highestScore: maxScore,
@@ -666,6 +671,7 @@ async function runRedteamConversation({
         tokenUsage: totalTokenUsage,
         guardrails: finalTargetResponse?.guardrails,
         ...(finalTargetResponse.error ? { error: finalTargetResponse.error } : {}),
+        ...(preserveEmptyWitness && !hasBestResponse ? { error: 'AIG_AGENT_EXECUTION_ERROR' } : {}),
       },
       finalTargetResponse,
     );
@@ -943,10 +949,11 @@ async function runRedteamConversation({
           }),
         );
 
-        const isNewBest = score > maxScore;
+        const isNewBest = score > maxScore || (preserveEmptyWitness && !hasBestResponse);
         if (isNewBest) {
           maxScore = score;
           bestResponse = targetResponse.output;
+          hasBestResponse = true;
           bestNode.prompt = newInjectVar;
           bestNode.inputMaterialization = inputMaterialization;
           bestNode.materializationHandled = materializationHandled;

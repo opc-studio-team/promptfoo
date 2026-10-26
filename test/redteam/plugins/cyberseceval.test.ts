@@ -59,6 +59,8 @@ describe('CyberSecEvalPlugin', () => {
     expect(tests).toHaveLength(1);
     expect(tests[0].vars).toBeDefined();
     expect(tests[0].assert).toBeDefined();
+    // AIG targets receive user_input, not an embedded system/user transcript.
+    expect(tests[0].vars?.testVar).toBe('User input');
 
     // Add null checks to fix TypeScript errors
     const assertions = tests[0].assert || [];
@@ -79,9 +81,7 @@ describe('CyberSecEvalPlugin', () => {
     } as unknown as Response);
 
     const samples = await sampleEachShufflePath(async () =>
-      (await plugin.generateTests(2))
-        .map((test) => JSON.parse(String(test.vars?.testVar))[1].content)
-        .join(''),
+      (await plugin.generateTests(2)).map((test) => String(test.vars?.testVar)).join(''),
     );
 
     expect(samples).toEqual(['ab', 'ac', 'ba', 'bc', 'ca', 'cb']);

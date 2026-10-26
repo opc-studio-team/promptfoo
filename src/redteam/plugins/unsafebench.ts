@@ -2,11 +2,12 @@ import fs from 'fs/promises';
 import path from 'path';
 
 import dedent from 'dedent';
+import { getEnvString } from '../../envars';
 import { fetchHuggingFaceDataset } from '../../integrations/huggingfaceDatasets';
 import logger from '../../logger';
-import { getEnvString } from '../../envars';
 import { fetchWithProxy } from '../../util/fetch/index';
 import { sampleArray } from '../../util/generation';
+import { isRemoteDatasetFetchAllowed } from '../util';
 import { createAssertion, RedteamGraderBase, RedteamPluginBase } from './base';
 
 import type { Assertion, AtomicTestCase, PluginConfig, TestCase } from '../../types/index';
@@ -35,6 +36,7 @@ interface UnsafeBenchInput {
   image: string; // Base64 encoded image
   category: string;
   safety_label: string;
+  text?: string; // Textual description of the image (e.g., image caption or prompt)
 }
 
 interface UnsafeBenchPluginConfig extends PluginConfig {
@@ -312,13 +314,26 @@ class UnsafeBenchDatasetManager {
           (r) => (r as any).safety_label === 'Unsafe' || (r as any).safety_label === 'unsafe',
         );
         this.datasetCache = unsafeOnly.length > 0 ? unsafeOnly : records;
-        logger.debug(
-          `[unsafebench] Loaded ${this.datasetCache.length} records from local dataset`,
-        );
+        logger.debug(`[unsafebench] Loaded ${this.datasetCache.length} records from local dataset`);
         return;
       } catch (err) {
+        if (!isRemoteDatasetFetchAllowed()) {
+          logger.warn(
+            `[unsafebench] Local dataset not found and remote dataset fetch is disabled. ` +
+              `Run the preload script or set PROMPTFOO_DISABLE_REMOTE_DATASET_FETCH=false.`,
+          );
+          return;
+        }
         logger.warn(`[unsafebench] Failed to load local dataset, falling back to remote: ${err}`);
       }
+    }
+
+    if (!isRemoteDatasetFetchAllowed()) {
+      logger.warn(
+        `[unsafebench] Remote dataset fetch is disabled. ` +
+          `Set PROMPTFOO_LOCAL_DATASETS_DIR with preloaded data or PROMPTFOO_DISABLE_REMOTE_DATASET_FETCH=false.`,
+      );
+      return;
     }
 
     // Fetch a large dataset - aim to get the entire dataset if reasonable
@@ -355,6 +370,7 @@ class UnsafeBenchDatasetManager {
               image: imageData,
               category: (record.vars?.category as string) || 'Unknown',
               safety_label: (record.vars?.safety_label as string) || 'unsafe',
+              text: (record.vars?.text as string) || undefined,
             };
           };
 
@@ -384,13 +400,7 @@ class UnsafeBenchDatasetManager {
             return null;
           }
         })
-        .filter(
-          (
-            result,
-          ): result is
-            | { recordToProcess: (imageData: string) => UnsafeBenchInput; imageUrl: string }
-            | UnsafeBenchInput => result !== null,
-        );
+        .filter((result): result is NonNullable<typeof result> => result !== null);
 
       logger.debug(
         `[unsafebench] Found ${unsafeRecords.length} unsafe records from UnsafeBench dataset`,
@@ -423,7 +433,7 @@ class UnsafeBenchDatasetManager {
 
       // Wait for all image processing to complete
       const processedRecords = (await processedRecordsPromise).filter(
-        (record): record is UnsafeBenchInput => record !== null,
+        (record): record is NonNullable<typeof record> => record !== null,
       );
 
       logger.debug(`[unsafebench] Processed ${processedRecords.length} images to base64 format`);
@@ -517,11 +527,15 @@ export class UnsafeBenchPlugin extends RedteamPluginBase {
       // Map records to test cases
       return records.map(
         (record): TestCase => ({
-          vars: { [this.injectVar]: record.image },
+          vars: {
+            [this.injectVar]: record.image,
+            ...(record.text ? { text: record.text } : {}),
+          },
           assert: this.getAssertions(record.category),
           metadata: {
             unsafebenchCategory: record.category,
             category: record.category,
+            ...(record.text ? { text: record.text } : {}),
           },
         }),
       );
