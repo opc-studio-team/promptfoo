@@ -82,6 +82,22 @@ export function safeAgentHTTPError(
   ) {
     diagnostic.diagnostic_id = detail.diagnostic_id;
   }
+  // The proxy records the upstream HTTP status for non-2xx responses. Carry it
+  // through (validated integer 100-599) so consumers can tell a gateway
+  // interception (403/404/…) apart from broken credentials (401/407), rate
+  // limiting (429) and target failures (5xx). Accept both a JSON number (first
+  // projection, straight from the envelope) and a numeric string (second
+  // projection at the persistence boundary, where the diagnostic record is
+  // re-wrapped as Record<string, string>).
+  const statusNum =
+    typeof detail?.http_status === 'number'
+      ? detail.http_status
+      : typeof detail?.http_status === 'string' && /^\d+$/.test(detail.http_status)
+        ? Number(detail.http_status)
+        : NaN;
+  if (Number.isInteger(statusNum) && statusNum >= 100 && statusNum <= 599) {
+    diagnostic.http_status = String(statusNum);
+  }
   // Envelope detail is authoritative; only when it yielded nothing does the
   // closed transform-code map classify the thrown cause.
   if (Object.keys(diagnostic).length === 0 && cause instanceof Error) {

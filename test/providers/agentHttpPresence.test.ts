@@ -65,6 +65,56 @@ describe('custom HTTP local contract', () => {
       }).diagnostic,
     ).toEqual({});
   });
+
+  it('carries a validated upstream HTTP status for gateway classification', () => {
+    const error = safeAgentHTTPError({
+      contract_version: 'aig-agent-http/v1',
+      execution_status: 'error',
+      error: {
+        code: 'HTTP_STATUS_ERROR',
+        category: 'http',
+        diagnostic_id: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+        http_status: 403,
+      },
+    });
+    expect(error.diagnostic).toEqual({
+      code: 'HTTP_STATUS_ERROR',
+      category: 'http',
+      diagnostic_id: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+      http_status: '403',
+    });
+    // Numeric strings (second projection at the persistence boundary) are also
+    // carried; non-integer, out-of-range, float or non-number statuses are
+    // dropped, never echoed.
+    expect(
+      safeAgentHTTPError({
+        contract_version: 'aig-agent-http/v1',
+        execution_status: 'error',
+        error: { code: 'HTTP_STATUS_ERROR', category: 'http', http_status: '403' },
+      }).diagnostic,
+    ).toEqual({ code: 'HTTP_STATUS_ERROR', category: 'http', http_status: '403' });
+    expect(
+      safeAgentHTTPError({
+        contract_version: 'aig-agent-http/v1',
+        execution_status: 'error',
+        error: { code: 'HTTP_STATUS_ERROR', category: 'http', http_status: 999 },
+      }).diagnostic,
+    ).toEqual({ code: 'HTTP_STATUS_ERROR', category: 'http' });
+    expect(
+      safeAgentHTTPError({
+        contract_version: 'aig-agent-http/v1',
+        execution_status: 'error',
+        error: { code: 'HTTP_STATUS_ERROR', category: 'http', http_status: 403.5 },
+      }).diagnostic,
+    ).toEqual({ code: 'HTTP_STATUS_ERROR', category: 'http' });
+    expect(
+      safeAgentHTTPError({
+        contract_version: 'aig-agent-http/v1',
+        execution_status: 'error',
+        error: { code: 'HTTP_STATUS_ERROR', category: 'http', http_status: 'PRIVATE' },
+      }).diagnostic,
+    ).toEqual({ code: 'HTTP_STATUS_ERROR', category: 'http' });
+  });
   it('classifies a transform throw on a success envelope through the closed code map', () => {
     // The platform transform throws AIG_AGENT_OUTPUT_* on data that carries no
     // error envelope; without cause classification this recorded an empty
